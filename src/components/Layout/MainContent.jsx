@@ -1,6 +1,8 @@
-import GameCard from "../Game/GameCard";
+import GameCard from "../Game/GameCard";;
 
-export default function MainContent({ games }) {
+export default function MainContent({ games, onUpdate }) {
+
+
   return (
     <main className="main">
       <input className="search" placeholder="Поиск игр..." />
@@ -13,7 +15,7 @@ export default function MainContent({ games }) {
           </p>
         ) : (
           games.map((game) => (
-            <GameCard key={game.id} game={game} />
+            <GameCard key={game.id} game={game} onUpdate={onUpdate}/>
           ))
         )}
       </div>

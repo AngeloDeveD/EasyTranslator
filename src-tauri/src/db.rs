@@ -2,6 +2,7 @@ use rusqlite::{params, Connection, Result};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use serde::Deserialize;
+use rfd::FileDialog;
 
 //Импорт типов для управления состоянием
 use tauri::State;
@@ -182,4 +183,30 @@ pub fn get_games(state: State<DbState>) -> Result<Vec<Game>, String> {
 
     //Возвращаем список фо фронт, tauri сам преобразует его в JSON
     Ok(games)
+}
+
+#[tauri::command]
+pub fn set_game_path(game_id: String, state: State<DbState>) -> Result<String, String>{
+    let folder = FileDialog::new()
+        .set_title("Выберите папку с установленной игрой")
+        .pick_folder();
+
+    match folder {
+        Some(path) => {
+            let path_str = path.to_string_lossy().to_string();
+
+            let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+            conn.execute(
+                "UPDATE games SET install_path = ?1 WHERE id = ?2", 
+                params![path_str, game_id]
+            ).map_err(|e| e.to_string())?;
+
+            Ok(path_str)
+        }
+        None => {
+            Err("Выбор папки отменён".to_string())
+        }
+    }
+
 }

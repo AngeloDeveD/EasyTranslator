@@ -1,6 +1,8 @@
+import { invoke } from "@tauri-apps/api/core";
+
 import Status from "./Status";
 
-export default function GameCard({ game }) {
+export default function GameCard({ game, onUpdate }) {
   // Вычисляем статус на основе данных из Rust
   const getGameStatus = () => {
     if (!game.install_path) {
@@ -37,19 +39,34 @@ export default function GameCard({ game }) {
   const { uiStatus, statusText } = getGameStatus();
   const { primary, primaryClass, showSecondary, secondaryText } = getActions(uiStatus);
 
+  const handleSetPath = async () => {
+    try{
+      await invoke("set_game_path", {gameId: game.id});
+
+      onUpdate();
+    } catch (error){
+      if(error !== "Выбор папки отменён"){
+        console.error(error);
+      }
+    }
+  };
+
   return (
     <div className="card">
       <div className="card-content">
         <h3>{game.name}</h3>
         
-        {/* Убрали "124 mods". Передаем динамический статус и текст */}
         <Status status={uiStatus} text={statusText} />
 
         <div className="actions">
           {showSecondary && (
             <button className="btn secondary">{secondaryText}</button>
           )}
-          <button className={primaryClass}>{primary}</button>
+          <button 
+            className={primaryClass} 
+            onClick={uiStatus === "error" ? handleSetPath : undefined}>
+              {primary}
+          </button>
         </div>
       </div>
     </div>

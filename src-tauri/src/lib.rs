@@ -68,7 +68,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            greet, open_file, save_file, db::get_games, db::sync_catalog
+            greet, open_file, save_file, db::get_games, db::sync_catalog, db::set_game_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

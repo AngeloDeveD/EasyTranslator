@@ -51,12 +51,8 @@ export default function App() {
   const [games, setGames] = useState([]);
 
   const fetchGames = async () => {
-    try {
-      const result = await invoke("get_games");
-      setGames(result);
-    } catch (error) {
-      console.error("Ошибка БД:", error);
-    }
+    const result = await invoke("get_games");
+    setGames(result);
   };
 
   useEffect(() => {
@@ -78,13 +74,11 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* 1. Слой тайтлбара */}
       <Titlebar />
 
-      {/* 2. Слой основного контента */}
       <div className="app-body">
         <Sidebar games={games} />
-        <MainContent games={games} />
+        <MainContent games={games} onUpdate={fetchGames}/>
         {/* ВРЕМЕННАЯ КНОПКА ТЕСТА (потом удалим) */}
         <button 
           onClick={handleTestSync} 
