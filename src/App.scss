@@ -1,0 +1,264 @@
+// styles.scss
+
+:root {
+  // === БАЗА: Холодные тёмные тона ===
+  --bg-base: #0c0d12;        
+  --bg-surface: #14151c;     
+  --bg-elevated: #1a1b24;    
+  --bg-hover: #22232e;       
+  
+  // === ГРАНИЦЫ И ТЕНИ ===
+  --border: rgba(255, 255, 255, 0.06); 
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.3);
+  
+  // === ТИПОГРАФИКА ===
+  --text-primary: #e4e5ea;   
+  --text-secondary: #6b6d78; 
+  
+  // === АКЦЕНТЫ (State-driven) ===
+  --accent: #f08c5d;         
+  --accent-hover: #e07a49;   
+  --success: #4ecb8d;        
+  --error: #ef4444;          
+
+  // === ГЕОМЕТРИЯ ===
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --transition: 150ms ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+// === LAYOUT ===
+.app {
+  display: flex !important;
+  flex-direction: column !important; // ВАЖНО: колонка (Тайтлбар сверху, остальное снизу)
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden; // Запрещаем всему окну скроллиться
+  background-color: var(--bg-base);
+}
+
+.app-body {
+  display: flex;
+  flex-direction: row !important; // ВАЖНО: строка (Сайдбар слева, контент справа)
+  flex: 1; // Занимает всё оставшееся место под тайтлбаром
+  overflow: hidden; 
+}
+
+// === SIDEBAR (Стиль "History" с кнопками-блоками) ===
+.sidebar {
+  width: 200px; // Чуть уже, так как текста нет, только "Game title"
+  min-width: 200px;
+  background-color: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  padding: 24px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0
+
+  h2 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    padding-left: 8px;
+  }
+}
+
+.menu-item {
+  // Теперь это не строчный текст с полоской, а полноценная кнопка-прямоугольник
+  padding: 12px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: all var(--transition);
+  
+  // Убираем дефолтную левую полоску активации
+  border-left: 1px solid var(--border);
+
+  &:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--accent); // Обводка всего блока при активации
+  }
+}
+
+// === MAIN CONTENT ===
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 32px;
+  overflow-y: auto; // Скроллится ТОЛЬКО этот блок
+}
+
+// === TOP BAR (Поиск + индикаторы) ===
+// Так как я не могу менять твой React-код, я превращаю инпут в флекс-контейнер, 
+// чтобы сымитировать верхнюю панель с кружочками справа.
+.search {
+  width: 100%;
+  max-width: 100%; // Теперь на всю ширину
+  padding: 12px 16px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition);
+  margin-bottom: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  &::placeholder {
+    color: var(--text-secondary);
+  }
+
+  &:focus {
+    border-color: var(--accent);
+  }
+
+  // CSS-трюк: рисуем два кружочка (желтый и красный) справа в инпуте без изменения HTML
+  // (В реальном проекте лучше вынести их в отдельные div-ы в React)
+  &::after {
+    content: '';
+    display: flex;
+    gap: 6px;
+    width: 20px;
+    height: 10px;
+    background-image: radial-gradient(circle at 5px 5px, var(--accent) 4px, transparent 4px),
+                      radial-gradient(circle at 15px 5px, var(--error) 4px, transparent 4px);
+    background-repeat: no-repeat;
+    flex-shrink: 0;
+  }
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+// === GRID (Прямоугольники превью) ===
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+// === CARD (Стиль прямоугольных превью) ===
+.card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition);
+  
+  // Делаем их похожими на прямоугольники обложек из описания
+  height: 160px; 
+  position: relative;
+  overflow: hidden;
+
+  &:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: var(--shadow-card);
+    transform: translateY(-2px);
+  }
+
+  &-content {
+    padding: 16px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end; // Текст и статус прижаты к низу карточки
+    background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 60%); // Затемнение низа для читаемости текста
+  }
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .mods {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+}
+
+// === STATUS ===
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-bottom: 8px;
+
+  .dot { width: 5px; height: 5px; border-radius: 50%; }
+
+  &.success { color: var(--success); .dot { background-color: var(--success); } }
+  &.update { color: var(--accent); .dot { background-color: var(--accent); } }
+  &.error { color: var(--error); .dot { background-color: var(--error); } }
+}
+
+// === BUTTONS (Скрыты или адаптированы под низ карточки) ===
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 0; // Убрали отступ, так как прижали к низу
+}
+
+.btn {
+  padding: 6px 12px; // Сделали кнопки компактнее для карточек-превью
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition);
+  
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  &.secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.15); color: var(--text-primary); }
+  }
+
+  &.primary {
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
+    &:hover:not(:disabled) { background-color: var(--bg-hover); }
+  }
+
+  &.accent {
+    background-color: var(--accent);
+    color: #0c0d12;
+    &:hover:not(:disabled) { background-color: var(--accent-hover); }
+  }
+
+  &.error {
+    background-color: var(--error);
+    color: #ffffff;
+    &:hover:not(:disabled) { background-color: #dc2626; }
+  }
+}

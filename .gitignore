@@ -1,4 +1,4 @@
-# Logs
+# === LOGS ===
 logs
 *.log
 npm-debug.log*
@@ -7,21 +7,44 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# === DEPENDENCIES ===
 node_modules
+
+# === BUILD OUTPUTS (То, что ты забываешь удалять) ===
+# Vite/React билды
 dist
 dist-ssr
+
+release/
+build/
+bin/
+out/
+
+# === TAURI / RUST ===
+src-tauri/target/
+
+src-tauri/gen/apple
+src-tauri/gen/android
+
+# === SECRETS & ENV ===
+.env
+.env.*
 *.local
 
-# Editor directories and files
+*.key
+*.pem
+*.cert
+*.pk8
+
+# === EDITOR & OS ===
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json # Если шаришь настройки команды, раскомментируй
 .idea
 .DS_Store
+Thumbs.db # Файлы кеша превью в Windows
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-
-#Tauri target files
-src-tauri/target/*

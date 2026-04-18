@@ -28,6 +28,9 @@ git clone https://github.com/AngeloDeveD/EasyTranslator.git
 cd EasyTranslator
 ```
 3. Install dependencies and run:
-   ```bash
-   npm install
-   npm run tauri dev
+```bash
+npm install
+npm run tauri dev
+
+## 📁 Project Structure
+**Let's leave this for a bit later 😊**

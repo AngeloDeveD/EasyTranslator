@@ -13,10 +13,16 @@
     "windows": [
       {
         "title": "smart-translator",
-        "width": 800,
-        "height": 600
+        "width": 1100,
+        "height": 700,
+        "resizable": false,
+        "maximizable": false,
+        "fullscreen": false,
+        "transparent": false,
+        "decorations": false
       }
     ],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null
     }

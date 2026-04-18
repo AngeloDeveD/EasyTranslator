@@ -1,0 +1,68 @@
+:root {
+  // === РАЗМЕРЫ TITLEBAR ===
+  --titlebar-height: 32px;
+  --titlebar-padding-x: 12px;
+  --titlebar-btn-size: 12px;
+  --titlebar-btn-gap: 8px;
+  --titlebar-btn-radius: 100%;
+  --titlebar-z-index: 5000;
+  --titlebar-transition: 150ms ease;
+
+  // === ЦВЕТА TITLEBAR ===
+  --titlebar-bg-color: #0c0d12; // Синхронизировано с --bg-base основного SCSS
+  --titlebar-border-color: rgba(255, 255, 255, 0.06);
+  
+  // Кнопки (приглушенные macOS-цвета, не кричащие)
+  --titlebar-btn-close: #ff5f57;
+  --titlebar-btn-minimize: #febc2e;
+  --titlebar-btn-maximize: #28c840; // На случай, если добавишь кнопку развертывания
+  
+  // Интерактив
+  --titlebar-btn-hover-opacity: 0.8;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end; 
+  height: var(--titlebar-height);
+  padding: 0 var(--titlebar-padding-x);
+  background-color: var(--titlebar-bg-color);
+  border-bottom: 1px solid var(--titlebar-border-color);
+  flex-shrink: 0; // Запрещает сжиматься при скролле
+  -webkit-app-region: drag;
+  z-index: var(--titlebar-z-index);
+  position: relative;
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--titlebar-btn-gap);
+}
+
+.window-controls-button {
+  width: var(--titlebar-btn-size);
+  height: var(--titlebar-btn-size);
+  border-radius: var(--titlebar-btn-radius);
+  border: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: opacity var(--titlebar-transition);
+
+  &:focus { outline: none; }
+  &:hover { opacity: var(--titlebar-btn-hover-opacity); }
+  &:active { transform: scale(0.9); }
+}
+
+.controls-button-close {
+  background-color: var(--titlebar-btn-close);
+}
+
+.controls-button-hide {
+  background-color: var(--titlebar-btn-minimize);
+}
+
+.controls-button-minimize {
+  background-color: var(--titlebar-btn-minimize);
+}

@@ -1,36 +1,33 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
 
-function App() {
-  //const [name, setName] = useState("");
+import Titlebar from "./components/titleBar/titleBar";
+import { games } from "./data/games";
+import Sidebar from "./components/Layout/Sidebar";
+import MainContent from "./components/Layout/MainContent";
+//import TextEditor from "./components/textEditorComponent/textEditor";
 
-  const [resText, setResText] = useState("");
+import "./App.scss";
 
-  function sendName(name){
-    if (!name) return;
+export default function App() {
 
-    try{
-      setResText(invoke('greet', {name: name}));
-    }
-    catch(e){
-      console.error("Ошибка от Rust:", e);
-    }
-  }
+  //Тестовый список игр
+  const [activeGameId, setActiveGameId] = useState(games[0].id);
 
   return (
-    <>
-      <div>
-        <h1>Привет, как тебя зовут</h1>
-        <input type="text" onChange={e => sendName(e.target.value)} placeholder="Введите ваше имя"></input>
+    <div className="app">
+      {/* 1. Слой тайтлбара */}
+      <Titlebar />
+
+      {/* 2. Слой основного контента */}
+      <div className="app-body">
+        <Sidebar 
+          games={games} 
+          activeGameId={activeGameId} 
+          onSelectGame={setActiveGameId} 
+        />
+        <MainContent games={games} />
       </div>
-      {resText && 
-      <>
-        <h2>{resText}</h2>
-      </>}
-    </>
+    </div>
   );
 
 }
-
-export default App;

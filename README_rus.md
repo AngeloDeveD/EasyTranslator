@@ -34,5 +34,5 @@ npm install
 npm run tauri dev
 ```
 
-## 📁 Project Structure
+## 📁 Структура проекта
 **Это давайте чуть позже 😊**
