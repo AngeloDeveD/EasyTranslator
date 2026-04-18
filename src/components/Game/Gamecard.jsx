@@ -1,31 +1,54 @@
 import Status from "./Status";
 
 export default function GameCard({ game }) {
-  // Логика состояний для кнопок
-  const getActions = (status) => {
-    switch (status) {
-      case "update": 
-        return { primary: "Update", primaryClass: "btn accent" };
-      case "error": 
-        return { primary: "Fix Conflicts", primaryClass: "btn error" };
-      case "success": 
-      default: 
-        return { primary: "▶ Play", primaryClass: "btn primary" };
+  // Вычисляем статус на основе данных из Rust
+  const getGameStatus = () => {
+    if (!game.install_path) {
+      return { 
+        uiStatus: "error", 
+        statusText: "Путь не указан" 
+      };
     }
+    return { 
+      uiStatus: "success", 
+      statusText: "Игра найдена" 
+    };
   };
 
-  const { primary, primaryClass } = getActions(game.status);
+  // Логика кнопок привязана к статусу игры
+  const getActions = (uiStatus) => {
+    if (uiStatus === "error") {
+      return {
+        primary: "Выбрать путь",
+        primaryClass: "btn accent", // Кнопка attracting внимание (персовый)
+        showSecondary: false
+      };
+    }
+
+    // Если игра найдена
+    return {
+      primary: "Переводы",
+      primaryClass: "btn primary",
+      showSecondary: true,
+      secondaryText: "Настроить"
+    };
+  };
+
+  const { uiStatus, statusText } = getGameStatus();
+  const { primary, primaryClass, showSecondary, secondaryText } = getActions(uiStatus);
 
   return (
     <div className="card">
       <div className="card-content">
         <h3>{game.name}</h3>
-        <p className="mods">{game.mods} mods installed</p>
         
-        <Status status={game.status} />
+        {/* Убрали "124 mods". Передаем динамический статус и текст */}
+        <Status status={uiStatus} text={statusText} />
 
         <div className="actions">
-          <button className="btn secondary">Manage</button>
+          {showSecondary && (
+            <button className="btn secondary">{secondaryText}</button>
+          )}
           <button className={primaryClass}>{primary}</button>
         </div>
       </div>

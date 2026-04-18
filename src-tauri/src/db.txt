@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, Result};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use serde::Deserialize;
+use::serde::Deserialize;
 
 //Импорт типов для управления состоянием
 use tauri::State;
@@ -51,7 +51,7 @@ pub fn sync_catalog(state: State<DbState>, json_string: String) -> Result<(), St
     for game in catalog {
         //Добавляем или обвновляем игру
         tx.execute(
-            "INSERT INTO games (id, name) VALUES (?1, ?2)
+            "INSERT INTO games (id, game) VALUES (?1, ?2)
             ON CONFLICT(id) DO UPDATE SET name = excluded.name",
             params![game.id, game.name],
         ).map_err(|e| e.to_string())?;

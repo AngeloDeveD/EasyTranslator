@@ -1,14 +1,15 @@
-export default function Status({ status }) {
-  const config = {
-    success: { text: "All up to date", className: "status success" },
-    update: { text: "Update available", className: "status update" },
-    error: { text: "Conflicts detected", className: "status error" },
+export default function Status({ status, text }) {
+  const getColorClass = () => {
+    switch (status) {
+      case "success": return "status success";
+      case "error":   return "status error";
+      case "update":  return "status update";
+      default:        return "status success";
+    }
   };
 
-  const { text, className } = config[status];
-
   return (
-    <div className={className}>
+    <div className={getColorClass()}>
       <span className="dot" />
       {text}
     </div>
