@@ -31,6 +31,12 @@ cd EasyTranslator
 ```bash
 npm install
 npm run tauri dev
+```
+
+4. To create a build, run:
+```bash
+npm run tauri build
+```
 
 ## 📁 Project Structure
 **Let's leave this for a bit later 😊**

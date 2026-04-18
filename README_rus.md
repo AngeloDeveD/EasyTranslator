@@ -34,5 +34,10 @@ npm install
 npm run tauri dev
 ```
 
+4. Для создания билда запустите:
+```bash
+npm run tauri build
+```
+
 ## 📁 Структура проекта
 **Это давайте чуть позже 😊**
