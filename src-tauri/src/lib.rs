@@ -1,6 +1,9 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod db;
+
 use std::fs;
 use rfd::FileDialog;
+use tauri::Manager;
 //use window_vibrancy::{apply_blur, apply_mica, apply_vibrancy, NSVisualEffectMaterial};
 
 #[tauri::command]
@@ -46,32 +49,21 @@ fn save_file(content: String) -> Result<String, String>{
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        // .setup(|app| {
-        //     let window = app.get_webview_window("main").unwrap();
+        //setup выполянется один раз перед запуском приложения
+        .setup(|app| {
+            //Получения доступа к папке с бд (стандартная папка, которую создала tauri)
+            let app_dir = app.path().app_data_dir()
+                .expect("Не удалось получить папку с данными");
 
-        //     // Для macOS применяем эффект Vibrancy
-        //     #[cfg(target_os = "macos")]
-        //     {
-        //         // Используем мягкую обработку ошибки через if let
-        //         if let Err(e) = apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None) {
-        //             eprintln!("Не удалось применить Vibrancy (macOS): {}", e);
-        //             // Приложение не крашится, просто идет дальше
-        //         }
-        //     }
+            println!("Папка с данными приложения: {:?}", app_dir);
 
-        //     // Для Windows применяем эффект Mica/Blur
-        //     #[cfg(target_os = "windows")]
-        //     {
-        //         if let Err(_) = apply_mica(&window, None) {
-        //             // 2. Если Mica выдала ошибку (это Windows 10), откатываемся к Blur
-        //             if let Err(e) = apply_blur(&window, Some((18, 18, 18, 125))) {
-        //                 eprintln!("Не удалось применить ни Mica, ни Blur: {}", e);
-        //             }
-        //         }
-        //     }
+            //Вызов функции для инициализации бд
+            db::init(app_dir)
+                .expect("КРИТ. ОШИБКА: НЕ УДАЛОСЬ ИНИЦИАЛИЗОРАТЬ БД");
 
-        //     Ok(())
-        // })
+            Ok(()) //Блять, как мне не забывать не ставить ; 
+
+        })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![greet, open_file, save_file])
         .run(tauri::generate_context!())
