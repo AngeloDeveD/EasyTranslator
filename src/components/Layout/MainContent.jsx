@@ -1,6 +1,6 @@
 import GameCard from "../Game/GameCard";;
 
-export default function MainContent({ games, onUpdate }) {
+export default function MainContent({ games, onOpenGame }) {
 
 
   return (
@@ -15,7 +15,7 @@ export default function MainContent({ games, onUpdate }) {
           </p>
         ) : (
           games.map((game) => (
-            <GameCard key={game.id} game={game} onUpdate={onUpdate}/>
+            <GameCard key={game.id} game={game} onOpenGame={onOpenGame}/>
           ))
         )}
       </div>

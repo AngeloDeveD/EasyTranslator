@@ -1,5 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod db;
+mod installer;
+mod downloader;
 
 use std::fs;
 use rfd::FileDialog;
@@ -68,7 +70,10 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            greet, open_file, save_file, db::get_games, db::sync_catalog, db::set_game_path
+            greet, open_file, save_file, 
+            db::get_games, db::sync_catalog, db::set_game_path, 
+            db::reset_game_path, db::install_localization, db::get_localizations,
+            
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

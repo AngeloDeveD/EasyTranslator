@@ -262,3 +262,37 @@ body {
     &:hover:not(:disabled) { background-color: #dc2626; }
   }
 }
+
+.game-detail-header {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+  background-color: var(--bg-surface);
+  padding: 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.game-detail-img {
+  width: 150px;
+  height: auto;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.game-detail-info {
+  display: flex;
+  flex-direction: column;
+  
+  h1 {
+    font-size: 24px;
+    margin-bottom: 12px;
+  }
+}
+
+.game-detail-desc {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}

@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
+
 import Titlebar from "./components/titleBar/titleBar";
+import { games } from "./data/games";
 import Sidebar from "./components/Layout/Sidebar";
 import MainContent from "./components/Layout/MainContent";
-import GameDetailView from "./components/Game/GameDetailView"; // 1. ДОБАВЛЕН ИМПОРТ
 import { invoke } from "@tauri-apps/api/core";
+//import TextEditor from "./components/textEditorComponent/textEditor";
 
 import "./App.scss";
 
@@ -11,7 +13,6 @@ const FAKE_CATALOG_JSON = JSON.stringify([
   {
     id: "skyrim_se",
     name: "The Elder Scrolls V: Skyrim Special Edition",
-    image_url: "https://images.igdb.com/igdb/image/upload/t_cover_big/co5vmg.webp",
     description: "Легендарная RPG от Bethesda. Требуется для работы некоторых модов.",
     localizations: [
       {
@@ -20,7 +21,7 @@ const FAKE_CATALOG_JSON = JSON.stringify([
         version: "2.1.0",
         author: "Команда Legacy",
         source_url: "https://legacy-ru.com",
-        primary_url: "https://raw.githubusercontent.com/torvalds/linux/master/README", // Реальная ссылка для теста!
+        primary_url: "https://disk.yandex.ru/d/FAKE_SKYRIM_LINK",
         backup_url: null,
         archive_hash: "abc123hash",
         file_size_mb: 450,
@@ -32,7 +33,6 @@ const FAKE_CATALOG_JSON = JSON.stringify([
   {
     id: "persona4_golden",
     name: "Persona 4 Golden",
-    image_url: "https://images.igdb.com/igdb/image/upload/t_cover_big/co5vmg.webp",
     description: "Японская ролевая игра, порт с PS Vita. Нужен winmm.dll для отображения кириллицы.",
     localizations: [
       {
@@ -45,10 +45,20 @@ const FAKE_CATALOG_JSON = JSON.stringify([
         backup_url: "https://my-server.com/backups/p4g_rus.zip",
         archive_hash: "def456hash",
         file_size_mb: 120,
-        install_instructions: JSON.stringify([
-          { "src": "archive/data_e.cpk", "dest": "data_e.cpk" }, 
-          { "src": "archive/winmm.dll", "dest": "winmm.dll" }       
-        ]),
+        install_instructions: '[{"src": "data/text/", "dest": "data/text/"}]',
+        dll_whitelist: '[{"name": "winmm.dll", "hash": "hash_of_winmm"}]'
+      },
+      {
+        id: "p4g_rus_full",
+        name: "Полный перевод (текст + видео)",
+        version: "1.1.0",
+        author: "Nickle",
+        source_url: "https://youtube.com/@nickle",
+        primary_url: "https://disk.yandex.ru/d/FAKE_PERSONA_LINK_2",
+        backup_url: null,
+        archive_hash: "xyz789hash",
+        file_size_mb: 2500,
+        install_instructions: '[{"src": "data/", "dest": "data/"}]',
         dll_whitelist: '[{"name": "winmm.dll", "hash": "hash_of_winmm"}]'
       }
     ]
@@ -56,33 +66,46 @@ const FAKE_CATALOG_JSON = JSON.stringify([
 ]);
 
 export default function App() {
+
+  //Тестовый список игр
+  //const [activeGameId, setActiveGameId] = useState(games[0].id);
   const [games, setGames] = useState([]);
   const [selectedGame, setSelectedGame] = useState(null);
   const [localizations, setLocalizations] = useState([]);
 
-  // ЕДИНСТВЕННАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ИГР
   const checkAndSync = async () => {
+    // 1. Спрашиваем у Rust, есть ли игры в базе
     const currentGames = await invoke("get_games");
     
+    // 2. Если база пустая (список игр равен 0)
     if (currentGames.length === 0) {
+      console.log("База пуста. Синхронизируем тестовый каталог...");
       try {
+        // Вызываем нашу команду синхронизации
         await invoke("sync_catalog", { jsonString: FAKE_CATALOG_JSON });
+        console.log("Каталог успешно загружен в БД!");
       } catch (error) {
         console.error("Ошибка синхронизации при старте:", error);
       }
     }
 
+    // 3. Забираем актуальный список игр (он будет с тестовыми данными, если только что загрузили)
     const finalGames = await invoke("get_games");
     setGames(finalGames);
   };
 
-  // 2. ВЫЗЫВАЕМ checkAndSync ПРИ СТАРТЕ
+  const fetchGames = async () => {
+    const result = await invoke("get_games");
+    setGames(result);
+  };
+
   useEffect(() => {
-    checkAndSync();
+    fetchGames();
   }, []);
 
   const openGame = async (gameObj) => {
     setSelectedGame(gameObj);
+    
     try {
       const result = await invoke("get_localizations", { gameId: gameObj.id });
       setLocalizations(result);
@@ -91,52 +114,13 @@ export default function App() {
     }
   };
 
-   const handleSetPath = async (gameId) => {
-    try {
-      // Вызываем Rust, он возвращает нам новый путь
-      const newPath = await invoke("set_game_path", { gameId: gameId });
-      
-      // Мгновенно обновляем стейт текущей игры
-      setSelectedGame(prev => prev ? { ...prev, install_path: newPath } : null);
-      
-      // Фоново обновляем список игр в сайдбаре (на всякий случай)
-      checkAndSync(); 
-    } catch (error) {
-      if (error !== "Выбор папки отменен") console.error(error);
-      alert("ОШИБКА ВЫЗОВА RUST: " + error);
-    }
-  };
-
-  const handleResetPath = async (gameId) => {
-    try {
-      await invoke("reset_game_path", { gameId: gameId });
-      // Мгновенно убираем путь из интерфейса
-      setSelectedGame(prev => prev ? { ...prev, install_path: null } : null);
-      checkAndSync(); 
-    } catch (error) {
-      console.error("Ошибка сброса пути:", error);
-    }
-  };
-
-  const handleInstall = async (locId) => {
-    try {
-      await invoke("install_localization", { localizationId: locId });
-      
-      // Переобновляем локализации для текущей игры, чтобы UI увидел статус 'downloading'
-      if (selectedGame) {
-        const result = await invoke("get_localizations", { gameId: selectedGame.id });
-        setLocalizations(result);
-      }
-    } catch (error) {
-      alert("Ошибка установки: " + error); // Выведем алертом, если путь не указан
-    }
-  };
-
   const goBack = () => {
     setSelectedGame(null);
     setLocalizations([]);
-    checkAndSync(); 
+    checkAndSync();
+    fetchGames(); // Обновляем список на случай, если юзер поменял путь
   };
+
   return (
     <div className="app">
       <Titlebar />
@@ -150,16 +134,12 @@ export default function App() {
             <GameDetailView 
               game={selectedGame} 
               localizations={localizations} 
-              onBack={goBack}
-              onSetPath={handleSetPath}
-              onResetPath={handleResetPath}
-              onInstall={handleInstall}
+              onBack={goBack} 
             />
           )}
         </main>
       </div>
     </div>
   );
-}
 
-//Не позволяет выбрать папку с игрой
+}

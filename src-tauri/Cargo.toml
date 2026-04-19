@@ -25,6 +25,10 @@ serde_json = "1"
 rfd = "0.14" # Rust File Dialog - для вызова нативных окон OS
 window-vibrancy = "0.7.1"
 rusqlite = { version = "0.31", features = ["bundled"] }
+zip = "0.6"
+reqwest = { version = "0.12", features = ["stream"] }
+futures-util = "0.3" # Нужна для чтения потока скачивания кусками
+tempfile = "3" # Для безопасного создания временных файлов
 
 [profile.release]
 panic = "abort"      # Отключает детализированные стеки ошибок (экономит место)
