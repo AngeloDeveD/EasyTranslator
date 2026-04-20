@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use futures_util::StreamExt;
 use tauri::Emitter;
 use std::io::Write;
+use std::env;
 
 pub async fn download_with_fallback(
     app: tauri::AppHandle,
@@ -28,46 +29,44 @@ pub async fn download_with_fallback(
     }
 }
 
-//Функция для скачивания одного файла кусочками
+/// Внутренняя функция скачивания одного файла по кусочкам
 async fn download_file(
     app: tauri::AppHandle,
     url: &str,
     file_name: &str,
 ) -> Result<PathBuf, String> {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300)) // Таймаут 5 минут на бездействие
+        .timeout(std::time::Duration::from_secs(30)) // Снизили таймаут с 300 сек до 30
         .build()
         .map_err(|e| format!("Ошибка создания HTTP клиента: {}", e))?;
 
     let response = client.get(url).send().await
         .map_err(|e| format!("Ошибка сети: {}", e))?;
 
-    //Проверка статуса ответа от сервера
     if !response.status().is_success() {
         return Err(format!("Сервер вернул ошибку: {}", response.status()));
     }
 
     let total_size = response.content_length().unwrap_or(0);
-
-    //Создание временного файла в папке ос (%TEMP%)
-    let mut temp_file = tempfile::NamedTempFile::new()
+    
+    // ПИШЕМ НАПРЯМУЮ В %TEMP%
+    let temp_dir = env::temp_dir();
+    let final_path = temp_dir.join(file_name);
+    
+    let mut out_file = std::fs::File::create(&final_path)
         .map_err(|e| format!("Нет прав на создание временного файла: {}", e))?;
-
+    
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
 
-    //Считывание файла чанками (кусками)
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Ошибка чтения потока: {}", e))?;
-
-        temp_file.write_all(&chunk).map_err(|e| format!("Ошибка записи на диск: {}", e))?;
+        
+        out_file.write_all(&chunk).map_err(|e| format!("Ошибка записи на диск: {}", e))?;
         downloaded += chunk.len() as u64;
 
-        //Отправка события в react
         if total_size > 0 {
             let percent = ((downloaded as f64 / total_size as f64) * 100.0) as u32;
-
-            //Отправка события "download-progress" с JSON payload
             let _ = app.emit("download-progress", serde_json::json!({
                 "percent": percent,
                 "downloaded_mb": (downloaded as f64 / 1_048_576.0).round() as u32,
@@ -75,9 +74,6 @@ async fn download_file(
             }));
         }
     }
-
-    let final_path = temp_file.path().parent().unwrap().to_path_buf().join(file_name);
-    temp_file.persist(&final_path).map_err(|e| format!("Ошибка сохранения файла: {}", e))?;
 
     println!("[DOWNLOAD] Файл успешно скачан: {:?}", final_path);
     Ok(final_path)

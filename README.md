@@ -1,5 +1,4 @@
 [![Русский](https://img.shields.io/badge/Язык-Русский-green.svg)](README_rus.md)
-[![Implementation](https://img.shields.io/badge/Implemented-1%25-red)](README.md)
 [![Roadmap](https://img.shields.io/badge/Roadmap-00A2ff)](ROADMAP.md)
 
 # EasyTranslator: Simple Translation Installation for Games

@@ -3,25 +3,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import Status from "../Game/Status";
 
-export default function GameDetailView({ game, localizations, onBack, onSetPath, onResetPath, onInstall }) {
+export default function GameDetailView({ game, localizations, onBack, onSetPath, onResetPath, onInstall, onRollback, onOpenAddLoc, onDisable, onDelete }) {
   const path = game.install_path;
 
   // Стейт для прогресса (привязан к ID локализации)
   const [progress, setProgress] = useState({});
+  // НОВЫЙ СТЕЙТ: Блокировка кнопки во время процесса
+  const [isInstalling, setIsInstalling] = useState(false);
 
   // Слушатель событий из Rust
-  useEffect(() => {
-    const unlisten = listen("download-progress", (event) => {
-      // event.payload содержит { percent: 45, downloaded_mb: 10, total_mb: 100 }
-      // Мы не знаем, для какого перевода качается файл, поэтому обновляем общий стейт
-      // (Для простоты считаем, что качается только один файл одновременно)
-      setProgress(event.payload);
-    });
+    useEffect(() => {
+    const unlisten = listen("download-progress", (event) => setProgress(event.payload));
+    return () => { unlisten.then(fn => fn()); };
+    }, []);
 
-    return () => {
-      unlisten.then(fn => fn()); // Отписываемся при размонтировании
-    };
-  }, []);
 
   const setPath = async () => {
     try {
@@ -34,12 +29,20 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
     } catch (e) { if (e !== "Выбор папки отменен") console.error(e); }
   };
 
-  const handleAddTranslation = () => {
-    alert("Здесь будет форма отправки архива модератору (пока заглушка)");
+  const handleInstallClick = async (locId) => {
+    if (isInstalling) return;
+    setIsInstalling(true);
+    setProgress({});
+    try { await onInstall(locId); } 
+    catch (error) { setProgress({}); } 
+    finally { setIsInstalling(false); }
   };
 
-  const getInstallButton = (loc) => {
-    // Если статус downloading ИЛИ installing ИЛИ есть прогресс (процент > 0) -> показываем прогресс
+ const getInstallButton = (loc) => {
+    if (loc.status === 'error') {
+      return <button className="btn error" onClick={() => handleInstallClick(loc.id)} disabled={isInstalling}>Ошибка (Повторить)</button>;
+    }
+
     if ((loc.status === 'downloading' || loc.status === 'installing') && progress.percent > 0) {
       return (
         <div style={{ width: "100%", marginTop: "10px" }}>
@@ -54,34 +57,48 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
       );
     }
 
-    if (loc.status === 'installed') return <button className="btn secondary">Удалить перевод</button>;
+    //if (loc.status === 'installed') return <button className="btn secondary" onClick={() => onRollback(loc.id)}>Удалить перевод</button>;
     
-    return <button className="btn accent" onClick={() => onInstall(loc.id)}>Установить</button>;
-  };
+    if (loc.is_managed) {
+      return (
+        <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "10px" }}>
+          
+          {/* Кнопка "Включить" видна только если статус 'available' (выключен) */}
+          {loc.status === 'available' && (
+            <button className="btn accent" style={{ flex: 1 }} onClick={() => handleInstallClick(loc.id)} disabled={isInstalling}>
+              Включить
+            </button>
+          )}
+
+          {/* Кнопка "Выключить" видна только если статус 'installed' (файлы в игре) */}
+          {loc.status === 'installed' && (
+            <button className="btn secondary" style={{ flex: 1 }} onClick={() => onDisable(loc.id)} disabled={isInstalling}>
+              Выключить
+            </button>
+          )}
+
+          {/* Кнопка "Удалить" ВИДНА ВСЕГДА, независимо от того, включен перевод или выключен */}
+          <button className="btn error" style={{ flex: 1 }} onClick={() => onDelete(loc.id)} disabled={isInstalling}>
+            Удалить
+          </button>
+        </div>
+      );
+    }
+
+    // ЕСЛИ ПЕРЕВОД ЧИСТО ИЗ КАТАЛОГА (is_managed === false)
+    return <button className="btn accent" onClick={() => handleInstallClick(loc.id)} disabled={isInstalling}>Установить</button>;
+  }
 
   return (
     <>
-      <button className="btn secondary" onClick={onBack} style={{ marginBottom: "20px", width: "fit-content" }}>
-        ← Назад
-      </button>
+       <button className="btn secondary" onClick={onBack} style={{ marginBottom: "20px", width: "fit-content" }}>← Назад</button>
       
-       {/* Шапка с обложкой и инфо */}
       <div className="game-detail-header">
-        {game.image_url && (
-          <img 
-            src={game.image_url} 
-            alt={game.name} 
-            className="game-detail-img"
-            // В Tauri нужно разрешить загрузку картинок с других сайтов в tauri.conf.json (allowlist)
-          />
-        )}
+        {game.image_url && <img src={game.image_url} alt={game.name} className="game-detail-img" />}
         <div className="game-detail-info">
           <h1>{game.name}</h1>
           <p className="game-detail-desc">{game.description || "Описание отсутствует."}</p>
-          
-          <button className="btn secondary" onClick={handleAddTranslation} style={{ marginTop: "15px" }}>
-            ✉️ Предложить свой перевод
-          </button>
+          <button className="btn secondary" onClick={onOpenAddLoc} style={{ marginTop: "15px" }}>+ Предложить свой перевод</button>
         </div>
       </div>
 
@@ -107,22 +124,7 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
           {/* Обернули в flex, чтобы статус и кнопка были на одной строке */}
           <div style={{ display: "flex", alignItems: "center", gap: "15px", marginBottom: "20px" }}>
             <Status status="success" text={`Путь найден: ${path}`} />
-            
-            {/* КНОПКА СБРОСА */}
-            <button 
-              onClick={() => onResetPath(game.id)} 
-              style={{
-                background: "none", 
-                border: "none", 
-                color: "var(--text-secondary)", 
-                cursor: "pointer", 
-                textDecoration: "underline", 
-                fontSize: "12px",
-                padding: 0
-              }}
-            >
-              Сбросить путь
-            </button>
+            <button onClick={() => onResetPath(game.id)} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", textDecoration: "underline", fontSize: "12px", padding: 0 }}>Сбросить путь</button>
           </div>
 
           {/* Перевод ровно 1 */}

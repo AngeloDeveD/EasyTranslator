@@ -1,9 +1,14 @@
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
 import Titlebar from "./components/titleBar/titleBar";
 import Sidebar from "./components/Layout/Sidebar";
 import MainContent from "./components/Layout/MainContent";
 import GameDetailView from "./components/Game/GameDetailView"; // 1. ДОБАВЛЕН ИМПОРТ
-import { invoke } from "@tauri-apps/api/core";
+import AddGameModal from "./components/Modals/AddGameModal";
+import AddGameView from "./components/AddGameView";
+import AddLocalizationView from "./components/AddLocalizationView";
+import SettingsView from "./components/SettingsView";
 
 import "./App.scss";
 
@@ -41,7 +46,7 @@ const FAKE_CATALOG_JSON = JSON.stringify([
         version: "1.0.5",
         author: "ООО 'Альтернатива'",
         source_url: "https://vk.com/altergames",
-        primary_url: "https://disk.yandex.ru/d/FAKE_PERSONA_LINK",
+        primary_url: "https://raw.githubusercontent.com/torvalds/linux/master/README",
         backup_url: "https://my-server.com/backups/p4g_rus.zip",
         archive_hash: "def456hash",
         file_size_mb: 120,
@@ -59,107 +64,117 @@ export default function App() {
   const [games, setGames] = useState([]);
   const [selectedGame, setSelectedGame] = useState(null);
   const [localizations, setLocalizations] = useState([]);
+  
+  // Флаги управления экранами
+  const [showSettings, setShowSettings] = useState(false);
+  const [showAddGame, setShowAddGame] = useState(false);
+  const [showAddLoc, setShowAddLoc] = useState(false);
 
-  // ЕДИНСТВЕННАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ИГР
   const checkAndSync = async () => {
     const currentGames = await invoke("get_games");
-    
     if (currentGames.length === 0) {
-      try {
-        await invoke("sync_catalog", { jsonString: FAKE_CATALOG_JSON });
-      } catch (error) {
-        console.error("Ошибка синхронизации при старте:", error);
-      }
+      try { await invoke("sync_catalog", { jsonString: FAKE_CATALOG_JSON }); }
+      catch (error) { console.error("Ошибка синхронизации:", error); }
     }
-
-    const finalGames = await invoke("get_games");
-    setGames(finalGames);
+    setGames(await invoke("get_games"));
   };
 
-  // 2. ВЫЗЫВАЕМ checkAndSync ПРИ СТАРТЕ
-  useEffect(() => {
-    checkAndSync();
-  }, []);
+  useEffect(() => { checkAndSync(); }, []);
 
   const openGame = async (gameObj) => {
     setSelectedGame(gameObj);
     try {
       const result = await invoke("get_localizations", { gameId: gameObj.id });
       setLocalizations(result);
-    } catch (error) {
-      console.error("Ошибка получения локалей:", error);
-    }
-  };
-
-   const handleSetPath = async (gameId) => {
-    try {
-      // Вызываем Rust, он возвращает нам новый путь
-      const newPath = await invoke("set_game_path", { gameId: gameId });
-      
-      // Мгновенно обновляем стейт текущей игры
-      setSelectedGame(prev => prev ? { ...prev, install_path: newPath } : null);
-      
-      // Фоново обновляем список игр в сайдбаре (на всякий случай)
-      checkAndSync(); 
-    } catch (error) {
-      if (error !== "Выбор папки отменен") console.error(error);
-      alert("ОШИБКА ВЫЗОВА RUST: " + error);
-    }
-  };
-
-  const handleResetPath = async (gameId) => {
-    try {
-      await invoke("reset_game_path", { gameId: gameId });
-      // Мгновенно убираем путь из интерфейса
-      setSelectedGame(prev => prev ? { ...prev, install_path: null } : null);
-      checkAndSync(); 
-    } catch (error) {
-      console.error("Ошибка сброса пути:", error);
-    }
-  };
-
-  const handleInstall = async (locId) => {
-    try {
-      await invoke("install_localization", { localizationId: locId });
-      
-      // Переобновляем локализации для текущей игры, чтобы UI увидел статус 'downloading'
-      if (selectedGame) {
-        const result = await invoke("get_localizations", { gameId: selectedGame.id });
-        setLocalizations(result);
-      }
-    } catch (error) {
-      alert("Ошибка установки: " + error); // Выведем алертом, если путь не указан
-    }
+    } catch (error) { console.error("Ошибка получения локалей:", error); }
   };
 
   const goBack = () => {
     setSelectedGame(null);
     setLocalizations([]);
-    checkAndSync(); 
+    checkAndSync();
   };
+
+  // --- Обработчики действий ---
+
+  // ВКЛЮЧЕНИЕ (Скачать в Library + Распаковать)
+  const handleInstall = async (locId) => {
+    try {
+      await invoke("install_localization", { localizationId: locId });
+      if (selectedGame) setLocalizations(await invoke("get_localizations", { gameId: selectedGame.id }));
+    } catch (error) { alert("Ошибка включения: " + error); }
+  };
+
+  // ВЫКЛЮЧЕНИЕ (Откат файлов из бэкапа)
+  const handleDisable = async (locId) => {
+    try {
+      await invoke("disable_localization", { localizationId: locId });
+      if (selectedGame) setLocalizations(await invoke("get_localizations", { gameId: selectedGame.id }));
+    } catch (error) { alert("Ошибка выключения: " + error); }
+  };
+
+  // УДАЛЕНИЕ (Откат + Удаление бэкапа + Удаление из Library)
+  const handleDelete = async (locId) => {
+    if (!confirm("Вы уверены? Это полностью удалит перевод из программы.")) return;
+    try {
+      await invoke("delete_localization", { localizationId: locId });
+      if (selectedGame) setLocalizations(await invoke("get_localizations", { gameId: selectedGame.id }));
+    } catch (error) { alert("Ошибка удаления: " + error); }
+  };
+
+  const handleSetPath = async (gameId) => {
+    try {
+      const newPath = await invoke("set_game_path", { gameId });
+      setSelectedGame(prev => prev ? { ...prev, install_path: newPath } : null);
+      checkAndSync();
+    } catch (error) { if (error !== "Выбор папки отменен") alert("Ошибка: " + error); }
+  };
+
+  const handleResetPath = async (gameId) => {
+    try {
+      await invoke("reset_game_path", { gameId });
+      setSelectedGame(prev => prev ? { ...prev, install_path: null } : null);
+      checkAndSync();
+    } catch (error) { console.error(error); }
+  };
+
+  const handleLocalGameAdded = (newGame) => { setGames(prev => [...prev, newGame]); setShowAddGame(false); };
+  const handleLocalLocAdded = async () => {
+    if (selectedGame) setLocalizations(await invoke("get_localizations", { gameId: selectedGame.id }));
+    setShowAddLoc(false);
+  };
+
   return (
     <div className="app">
       <Titlebar />
-
       <div className="app-body">
-        <Sidebar games={games} onSelect={openGame}/>
+        <Sidebar games={games} selectedGameId={selectedGame?.id} onSelectGame={openGame} onOpenSettings={() => setShowSettings(true)} />
+        
         <main className="main">
-          {!selectedGame ? (
-            <MainContent games={games} onOpenGame={openGame} />
-          ) : (
+          {showSettings && <SettingsView onClose={() => setShowSettings(false)} />}
+          
+          {!selectedGame && !showAddGame && !showSettings && (
+            <MainContent games={games} onOpenGame={openGame} onOpenAddGame={() => setShowAddGame(true)} onOpenSettings={() => setShowSettings(true)} />
+          )}
+
+          {!selectedGame && showAddGame && (
+            <AddGameView onClose={() => setShowAddGame(false)} onGameAdded={handleLocalGameAdded} />
+          )}
+
+          {selectedGame && !showAddLoc && (
             <GameDetailView 
-              game={selectedGame} 
-              localizations={localizations} 
-              onBack={goBack}
-              onSetPath={handleSetPath}
-              onResetPath={handleResetPath}
-              onInstall={handleInstall}
+              game={selectedGame} localizations={localizations} onBack={goBack}
+              onSetPath={handleSetPath} onResetPath={handleResetPath}
+              onInstall={handleInstall} onDisable={handleDisable} onDelete={handleDelete}
+              onOpenAddLoc={() => setShowAddLoc(true)}
             />
+          )}
+
+          {selectedGame && showAddLoc && (
+            <AddLocalizationView gameId={selectedGame.id} onClose={() => setShowAddLoc(false)} onLocAdded={handleLocalLocAdded} />
           )}
         </main>
       </div>
     </div>
   );
 }
-
-//Не позволяет выбрать папку с игрой

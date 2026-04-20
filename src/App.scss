@@ -296,3 +296,31 @@ body {
   font-size: 14px;
   line-height: 1.5;
 }
+
+.menu-item {
+  display: flex;         // ДОБАВИТЬ
+  align-items: center;   // ДОБАВИТЬ (выравнивает иконку и текст по центру)
+  min-width: 0;          // ДОБАВИТЬ (критически важно для обрезки текста во flexbox)
+  
+  padding: 12px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: all var(--transition);
+  margin-bottom: 4px;
+  border-left: 2px solid transparent;
+
+  &:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+    border-left-color: var(--accent);
+  }
+}
