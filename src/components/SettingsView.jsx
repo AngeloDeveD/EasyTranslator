@@ -24,6 +24,7 @@ export default function SettingsView({ onClose }) {
         <div>
           <h3 style={{ fontSize: "16px", marginBottom: "15px", color: "var(--text-secondary)" }}>Размер окна</h3>
           <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
+            <button className="btn secondary" onClick={() => { setWidth(1100); setHeight(700); }}>1100x700</button>
             <button className="btn secondary" onClick={() => { setWidth(1280); setHeight(720); }}>1280x720</button>
             <button className="btn secondary" onClick={() => { setWidth(1600); setHeight(900); }}>1600x900</button>
             <button className="btn secondary" onClick={() => { setWidth(1920); setHeight(1080); }}>Full HD</button>

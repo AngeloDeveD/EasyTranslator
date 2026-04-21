@@ -1,4 +1,4 @@
-export default function Sidebar({ games, selectedGameId, onSelectGame }) {
+export default function Sidebar({ games, selectedGameId, onSelectGame, onOpenSettings }) {
   return (
     <aside className="sidebar">
       <h2>MOD LAUNCHER</h2>
@@ -7,33 +7,19 @@ export default function Sidebar({ games, selectedGameId, onSelectGame }) {
           <div 
             key={g.id} 
             className={`menu-item ${g.id === selectedGameId ? "active" : ""}`}
-            onClick={() => onSelectGame(g)} // Передаем весь объект g
+            onClick={() => onSelectGame(g)}
           >
             {g.image_url ? (
-              <img 
-                src={g.image_url} 
-                alt="" 
-                style={{ 
-                  width: "20px", 
-                  height: "20px", 
-                  borderRadius: "4px", 
-                  objectFit: "cover",
-                  marginRight: "10px"
-                }} 
-              />
+              <img src={g.image_url} alt="" style={{ width: "20px", height: "20px", borderRadius: "4px", objectFit: "cover", marginRight: "10px" }} />
             ) : (
               <span style={{ marginRight: "10px" }}>🎮</span>
             )}
-            <span style={{ 
-                overflow: "hidden", 
-                textOverflow: "ellipsis", 
-                whiteSpace: "nowrap",
-                flex: 1
-            }}>
-              {g.name}
-            </span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</span>
           </div>
         ))}
+        <button className="menu-item" onClick={onOpenSettings} style={{ marginTop: "auto", color: "var(--text-secondary)", border: "none", background: "transparent" }}>
+          ⚙️ Настройки
+        </button>
       </div>
     </aside>
   );
