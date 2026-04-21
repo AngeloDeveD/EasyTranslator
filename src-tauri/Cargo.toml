@@ -30,6 +30,10 @@ reqwest = { version = "0.12", features = ["stream"] }
 futures-util = "0.3" # Нужна для чтения потока скачивания кусками
 tempfile = "3" # Для безопасного создания временных файлов
 sha2 = "0.11.0"
+fs2 = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
 
 [profile.release]
 panic = "abort"      # Отключает детализированные стеки ошибок (экономит место)

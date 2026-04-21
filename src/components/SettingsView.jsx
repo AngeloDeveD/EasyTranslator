@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LogicalSize } from "@tauri-apps/api/dpi"; // Важно для Tauri v2
+import { LogicalSize } from "@tauri-apps/api/dpi";
 
 export default function SettingsView({ onClose }) {
   const [width, setWidth] = useState(1100);
@@ -8,10 +8,12 @@ export default function SettingsView({ onClose }) {
   const appWindow = getCurrentWindow();
 
   useEffect(() => {
+    // Инициализируем значения текущим размером окна, чтобы показывать реальное состояние.
     appWindow.innerSize().then(size => { setWidth(size.width); setHeight(size.height); });
   }, []);
 
   const applySize = async () => {
+    // Размер задаем через LogicalSize для корректной работы на разных DPI.
     await appWindow.setSize(new LogicalSize(width, height));
   };
 

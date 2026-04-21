@@ -1,4 +1,4 @@
-// styles.scss
+// Глобальные стили приложения (layout + базовый дизайн-сет).
 
 :root {
   // === БАЗА: Холодные тёмные тона ===
@@ -39,23 +39,23 @@ body {
 // === LAYOUT ===
 .app {
   display: flex !important;
-  flex-direction: column !important; // ВАЖНО: колонка (Тайтлбар сверху, остальное снизу)
+  flex-direction: column !important; // Titlebar сверху, рабочая область снизу.
   height: 100vh;
   width: 100vw;
-  overflow: hidden; // Запрещаем всему окну скроллиться
+  overflow: hidden; // Глобальный скролл отключен, скроллится только main-контейнер.
   background-color: var(--bg-base);
 }
 
 .app-body {
   display: flex;
-  flex-direction: row !important; // ВАЖНО: строка (Сайдбар слева, контент справа)
-  flex: 1; // Занимает всё оставшееся место под тайтлбаром
+  flex-direction: row !important; // Sidebar слева, основной контент справа.
+  flex: 1; // Занимает всю область под titlebar.
   overflow: hidden; 
 }
 
 // === SIDEBAR (Стиль "History" с кнопками-блоками) ===
 .sidebar {
-  width: 200px; // Чуть уже, так как текста нет, только "Game title"
+  width: 200px;
   min-width: 200px;
   background-color: var(--bg-surface);
   border-right: 1px solid var(--border);
@@ -76,7 +76,7 @@ body {
 }
 
 .menu-item {
-  // Теперь это не строчный текст с полоской, а полноценная кнопка-прямоугольник
+  // Элемент меню стилизован как интерактивная карточка.
   padding: 12px;
   background-color: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -86,7 +86,6 @@ body {
   color: var(--text-secondary);
   transition: all var(--transition);
   
-  // Убираем дефолтную левую полоску активации
   border-left: 1px solid var(--border);
 
   &:hover {
@@ -97,7 +96,7 @@ body {
   &.active {
     background-color: var(--bg-hover);
     color: var(--text-primary);
-    border-color: var(--accent); // Обводка всего блока при активации
+    border-color: var(--accent);
   }
 }
 
@@ -107,15 +106,14 @@ body {
   display: flex;
   flex-direction: column;
   padding: 24px 32px;
-  overflow-y: auto; // Скроллится ТОЛЬКО этот блок
+  overflow-y: auto; // Скролл локализован в main-области.
 }
 
 // === TOP BAR (Поиск + индикаторы) ===
-// Так как я не могу менять твой React-код, я превращаю инпут в флекс-контейнер, 
-// чтобы сымитировать верхнюю панель с кружочками справа.
+// Поле поиска используется как универсальный input-стиль по всему приложению.
 .search {
   width: 100%;
-  max-width: 100%; // Теперь на всю ширину
+  max-width: 100%;
   padding: 12px 16px;
   background-color: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -137,8 +135,7 @@ body {
     border-color: var(--accent);
   }
 
-  // CSS-трюк: рисуем два кружочка (желтый и красный) справа в инпуте без изменения HTML
-  // (В реальном проекте лучше вынести их в отдельные div-ы в React)
+  // Декоративные индикаторы в правой части инпута.
   &::after {
     content: '';
     display: flex;
@@ -172,7 +169,6 @@ body {
   border-radius: var(--radius-md);
   transition: all var(--transition);
   
-  // Делаем их похожими на прямоугольники обложек из описания
   height: 160px; 
   position: relative;
   overflow: hidden;
@@ -188,8 +184,8 @@ body {
     height: 100%;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end; // Текст и статус прижаты к низу карточки
-    background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 60%); // Затемнение низа для читаемости текста
+    justify-content: flex-end;
+    background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 60%);
   }
 
   h3 {
@@ -220,15 +216,15 @@ body {
   &.error { color: var(--error); .dot { background-color: var(--error); } }
 }
 
-// === BUTTONS (Скрыты или адаптированы под низ карточки) ===
+// === BUTTONS ===
 .actions {
   display: flex;
   gap: 8px;
-  margin-top: 0; // Убрали отступ, так как прижали к низу
+  margin-top: 0;
 }
 
 .btn {
-  padding: 6px 12px; // Сделали кнопки компактнее для карточек-превью
+  padding: 6px 12px;
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
@@ -298,9 +294,9 @@ body {
 }
 
 .menu-item {
-  display: flex;         // ДОБАВИТЬ
-  align-items: center;   // ДОБАВИТЬ (выравнивает иконку и текст по центру)
-  min-width: 0;          // ДОБАВИТЬ (критически важно для обрезки текста во flexbox)
+  display: flex;
+  align-items: center;
+  min-width: 0; // Важно для корректного ellipsis внутри flex-элемента.
   
   padding: 12px;
   background-color: var(--bg-elevated);

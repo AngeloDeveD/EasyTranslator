@@ -10,6 +10,7 @@ export default function AddGameModal({onClose, onGameAdded}){
         if(!name.trim()) return;
 
         try{
+            // Сохраняем игру в БД и сразу отражаем ее в локальном стейте родителя.
             const newGameId = await invoke("add_local_game", {
                 name: name,
                 description: desc
@@ -46,7 +47,7 @@ export default function AddGameModal({onClose, onGameAdded}){
             placeholder="Название игры (например: Persona 5)" 
             value={name} 
             onChange={e => setName(e.target.value)}
-            className="search" // Используем стили инпута поиска
+            className="search"
             required
           />
           

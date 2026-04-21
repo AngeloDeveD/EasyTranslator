@@ -7,7 +7,7 @@ export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
     version: "1.0",
     language: "Русский",
     author: "",
-    filePath: "",       // Теперь храним путь к файлу
+    filePath: "",       // Абсолютный путь к локальному zip-архиву.
     instructions: "[]"
   });
   const [isSaving, setIsSaving] = useState(false);
@@ -34,7 +34,8 @@ export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
         version: form.version,
         language: form.language,
         author: form.author,
-        filePath: form.filePath, // Передаем путь в Rust
+        // Backend сам вычисляет hash/size и сохраняет архив как локальную локализацию.
+        filePath: form.filePath,
         instructionsJson: form.instructions
       });
 
@@ -47,7 +48,7 @@ export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
     }
   };
 
-  // Вспомогательная функция для обрезки длинного пути (чтобы не ломать UI)
+  // В UI показываем только имя файла, чтобы не растягивать строку абсолютным путем.
   const getFileName = (path) => {
     if (!path) return "";
     const parts = path.replace(/\\/g, "/").split("/");
@@ -86,7 +87,7 @@ export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
           <input className="search" placeholder="Название команды" value={form.author} onChange={e => setForm({...form, author: e.target.value})} disabled={isSaving} />
         </div>
 
-        {/* НОВОЕ ПОЛЕ ВЫБОРА ФАЙЛА */}
+        {/* Выбор локального архива перевода. */}
         <div>
           <label style={styles.label}>Архив с переводом (.zip) *</label>
           <div style={{ display: "flex", gap: "10px" }}>
@@ -103,7 +104,7 @@ export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
           </div>
         </div>
 
-        {/* Продвинутое поле (свернуто по умолчанию) */}
+        {/* Продвинутый режим: ручные install_instructions для нестандартной структуры архива. */}
         <details style={{ cursor: "pointer" }}>
           <summary style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "10px" }}>
             ⚙️ Продвинутые настройки (JSON инструкции)

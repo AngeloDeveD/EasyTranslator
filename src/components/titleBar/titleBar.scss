@@ -1,3 +1,5 @@
+// Стили кастомного titlebar для режима `decorations: false` в Tauri.
+// Вся интерактивность окна (drag, close, minimize) завязана на этот блок.
 :root {
   // === РАЗМЕРЫ TITLEBAR ===
   --titlebar-height: 32px;

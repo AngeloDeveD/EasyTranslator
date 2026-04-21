@@ -1,33 +1,20 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import Status from "../Game/Status";
 
-export default function GameDetailView({ game, localizations, onBack, onSetPath, onResetPath, onInstall, onRollback, onOpenAddLoc, onDisable, onDelete }) {
+export default function GameDetailView({ game, localizations, onBack, onSetPath, onAutoDetectPath, onResetPath, onInstall, onRollback, onOpenAddLoc, onDisable, onDelete }) {
   const path = game.install_path;
 
-  // Стейт для прогресса (привязан к ID локализации)
+  // Последний payload прогресса загрузки/установки, приходящий из backend.
   const [progress, setProgress] = useState({});
-  // НОВЫЙ СТЕЙТ: Блокировка кнопки во время процесса
+  // Глобальная блокировка действий, пока идет установка/включение.
   const [isInstalling, setIsInstalling] = useState(false);
 
-  // Слушатель событий из Rust
-    useEffect(() => {
+  // Подписка на Tauri event `download-progress`.
+  useEffect(() => {
     const unlisten = listen("download-progress", (event) => setProgress(event.payload));
     return () => { unlisten.then(fn => fn()); };
-    }, []);
-
-
-  const setPath = async () => {
-    try {
-      await invoke("set_game_path", { gameId: game.id });
-      // Просто перезагружаем страницу detail view, обновляя стейт родителя
-      onBack();
-      // Временный костыль: после обновления сразу возвращаемся в игру.
-      // Позже мы сделаем это элегантнее через возврат нового пути из Rust
-      setTimeout(() => onBack(), 50); 
-    } catch (e) { if (e !== "Выбор папки отменен") console.error(e); }
-  };
+  }, []);
 
   const handleInstallClick = async (locId) => {
     if (isInstalling) return;
@@ -38,7 +25,8 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
     finally { setIsInstalling(false); }
   };
 
- const getInstallButton = (loc) => {
+  // Кнопки действий вычисляются от статуса локализации.
+  const getInstallButton = (loc) => {
     if (loc.status === 'error') {
       return <button className="btn error" onClick={() => handleInstallClick(loc.id)} disabled={isInstalling}>Ошибка (Повторить)</button>;
     }
@@ -57,27 +45,25 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
       );
     }
 
-    //if (loc.status === 'installed') return <button className="btn secondary" onClick={() => onRollback(loc.id)}>Удалить перевод</button>;
-    
     if (loc.is_managed) {
       return (
         <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "10px" }}>
           
-          {/* Кнопка "Включить" видна только если статус 'available' (выключен) */}
+          {/* "Включить" показываем только для выключенного managed-перевода. */}
           {loc.status === 'available' && (
             <button className="btn accent" style={{ flex: 1 }} onClick={() => handleInstallClick(loc.id)} disabled={isInstalling}>
               Включить
             </button>
           )}
 
-          {/* Кнопка "Выключить" видна только если статус 'installed' (файлы в игре) */}
+          {/* "Выключить" показываем только если файлы перевода сейчас активны. */}
           {loc.status === 'installed' && (
             <button className="btn secondary" style={{ flex: 1 }} onClick={() => onDisable(loc.id)} disabled={isInstalling}>
               Выключить
             </button>
           )}
 
-          {/* Кнопка "Удалить" ВИДНА ВСЕГДА, независимо от того, включен перевод или выключен */}
+          {/* "Удалить" всегда доступна для managed-перевода. */}
           <button className="btn error" style={{ flex: 1 }} onClick={() => onDelete(loc.id)} disabled={isInstalling}>
             Удалить
           </button>
@@ -85,7 +71,7 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
       );
     }
 
-    // ЕСЛИ ПЕРЕВОД ЧИСТО ИЗ КАТАЛОГА (is_managed === false)
+    // Каталожные переводы без локального жизненного цикла.
     return <button className="btn accent" onClick={() => handleInstallClick(loc.id)} disabled={isInstalling}>Установить</button>;
   }
 
@@ -102,8 +88,7 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
         </div>
       </div>
 
-
-       {/* БЛОК 1: ПУТЬ НЕ НАЙДЕН */}
+      {/* Блок без заданного install_path: показываем способы найти папку игры. */}
       {!path && (
         <div className="card" style={{ height: "auto", padding: "30px", textAlign: "center" }}>
           <h3 style={{ marginBottom: "15px" }}>Расположение игры не найдено</h3>
@@ -111,23 +96,21 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
             Укажите папку с установленной игрой, чтобы продолжить установку перевода.
           </p>
           <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
-            <button className="btn secondary" disabled>🔍 Автопоиск</button>
-            {/* ПРОСТО ВЫЗЫВАЕМ onSetPath */}
+            <button className="btn secondary" onClick={() => onAutoDetectPath(game.id)}>🔍 Автопоиск</button>
             <button className="btn accent" onClick={() => onSetPath(game.id)}>📁 Указать вручную</button>
           </div>
         </div>
       )}
 
-       {/* БЛОК 2: ПУТЬ НАЙДЕН */}
+      {/* Блок с валидным install_path: доступен список переводов и действия. */}
       {path && (
         <>
-          {/* Обернули в flex, чтобы статус и кнопка были на одной строке */}
           <div style={{ display: "flex", alignItems: "center", gap: "15px", marginBottom: "20px" }}>
             <Status status="success" text={`Путь найден: ${path}`} />
             <button onClick={() => onResetPath(game.id)} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", textDecoration: "underline", fontSize: "12px", padding: 0 }}>Сбросить путь</button>
           </div>
 
-          {/* Перевод ровно 1 */}
+          {/* Оптимизированный рендер для одиночной локализации. */}
           {localizations.length === 1 && (
             <div className="card" style={{ height: "auto", marginTop: "20px" }}>
               <div className="card-content" style={{ gap: "10px" }}>
@@ -145,7 +128,7 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
             </div>
           )}
 
-          {/* Переводов несколько (Выбор) */}
+          {/* Сетка выбора, если для игры доступно несколько локализаций. */}
           {localizations.length > 1 && (
             <div className="grid" style={{ marginTop: "20px" }}>
               {localizations.map((loc) => (

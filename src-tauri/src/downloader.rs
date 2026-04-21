@@ -1,4 +1,5 @@
-//Установка фалйа с поддержкой фоллбэка (рез. ссылка)
+// Слой скачивания архивов с поддержкой fallback-ссылки.
+// Отдельный модуль нужен, чтобы держать сетевую логику вне `db.rs`.
 use reqwest;
 use std::path::PathBuf;
 use futures_util::StreamExt;
@@ -10,33 +11,34 @@ pub async fn download_with_fallback(
     app: tauri::AppHandle,
     primary_url: &str,
     backup_url: Option<&str>,
-    file_name: &str, //Название архива
+    file_name: &str, // Имя временного файла в системной temp-папке.
 ) -> Result<PathBuf, String> {
     match download_file(app.clone(), primary_url, file_name).await {
         Ok(path) => return Ok(path),
         Err(primary_err) => {
             println!("[DOWNLOAD] Ошибка primary URL: {}. Пробуем backup...", primary_err);
 
-            //Есть оригинальная ссылка упала, то скачивает с backup
-
+            // При падении primary_url пробуем backup_url (если он задан).
             if let Some(backup) = backup_url {
                 return download_file(app, backup, file_name).await;
             }
 
-            //Если нет бэкапа, то возвращает ошибку
+            // Если резервной ссылки нет, пробрасываем исходную ошибку выше.
             Err(format!("Не удалось скачать файл. Основная и резервная ссылка недоступна. Ошибка: {}", primary_err))
         }
     }
 }
 
-/// Внутренняя функция скачивания одного файла по кусочкам
+/// Скачивает файл потоково и пишет его напрямую на диск.
+/// Во время скачивания публикует прогресс для UI через `download-progress`.
 async fn download_file(
     app: tauri::AppHandle,
     url: &str,
     file_name: &str,
 ) -> Result<PathBuf, String> {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30)) // Снизили таймаут с 300 сек до 30
+        // Короткий timeout нужен, чтобы быстрее переключаться на fallback-ссылку.
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("Ошибка создания HTTP клиента: {}", e))?;
 
@@ -49,7 +51,7 @@ async fn download_file(
 
     let total_size = response.content_length().unwrap_or(0);
     
-    // ПИШЕМ НАПРЯМУЮ В %TEMP%
+    // Сначала сохраняем файл во временную папку. Перемещение в library выполняется выше по стеку.
     let temp_dir = env::temp_dir();
     let final_path = temp_dir.join(file_name);
     
@@ -66,6 +68,7 @@ async fn download_file(
         downloaded += chunk.len() as u64;
 
         if total_size > 0 {
+            // Защита от деления на ноль и лишнего UI-шума при неизвестной длине контента.
             let percent = ((downloaded as f64 / total_size as f64) * 100.0) as u32;
             let _ = app.emit("download-progress", serde_json::json!({
                 "percent": percent,

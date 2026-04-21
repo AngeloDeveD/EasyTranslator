@@ -1,4 +1,5 @@
 export default function Status({ status, text }) {
+  // Маппинг доменного статуса в CSS-класс для единообразной цветовой индикации.
   const getColorClass = () => {
     switch (status) {
       case "success": return "status success";

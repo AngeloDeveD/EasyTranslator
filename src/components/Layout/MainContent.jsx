@@ -1,5 +1,3 @@
-//import GameCard from "../Game/GameCard";;
-
 export default function MainContent({ games, onOpenGame, onOpenAddGame }) {
   return (
     <main className="main">
@@ -11,8 +9,10 @@ export default function MainContent({ games, onOpenGame, onOpenAddGame }) {
       
       <div className="grid" style={{ marginTop: "20px" }}>
         {games.length === 0 ? (
+          // Состояние пустой БД/каталога.
           <p style={{ color: "var(--text-secondary)", gridColumn: "1 / -1" }}>База данных пуста.</p>
         ) : (
+          // Карточка игры открывает detail-view с локализациями.
           games.map((game) => (
             <div className="card" key={game.id} style={{ height: "auto", cursor: "pointer" }} onClick={() => onOpenGame(game)}>
               <div className="card-content" style={{ gap: "10px" }}>

@@ -1,4 +1,6 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+// Главный backend-модуль Tauri.
+// Здесь инициализируется инфраструктура приложения и регистрируются команды,
+// которые вызывает React-часть через `invoke`.
 mod db;
 mod installer;
 mod downloader;
@@ -6,10 +8,11 @@ mod downloader;
 use std::fs;
 use rfd::FileDialog;
 use tauri::Manager;
-//use window_vibrancy::{apply_blur, apply_mica, apply_vibrancy, NSVisualEffectMaterial};
+// TODO: при необходимости вернуть window-vibrancy в setup для кастомных эффектов окна.
 
 #[tauri::command]
 fn open_file() -> Result<String, String> {
+    // Простой helper-командлет для тестового текстового редактора в UI.
     let file_path = FileDialog::new()
         .add_filter("Текстовые файлы", &["txt", "md", "csv", "rs"])
         .pick_file();
@@ -27,11 +30,13 @@ fn open_file() -> Result<String, String> {
 
 #[tauri::command]
 fn greet(name: &str) -> String {
+    // Базовая тестовая команда из шаблона Tauri.
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
 #[tauri::command]
 fn save_file(content: String) -> Result<String, String>{
+    // Простой helper-командлет для тестового текстового редактора в UI.
     let file_path = FileDialog::new()
         .add_filter("Текстовый файл", &["txt"])
         .save_file();
@@ -51,29 +56,32 @@ fn save_file(content: String) -> Result<String, String>{
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        //setup выполянется один раз перед запуском приложения
+        // setup выполняется один раз перед стартом приложения.
         .setup(|app| {
-            //Получения доступа к папке с бд (стандартная папка, которую создала tauri)
+            // База данных хранится в системной app-data папке приложения.
             let app_dir = app.path().app_data_dir()
                 .expect("Не удалось получить папку с данными");
 
             println!("Папка с данными приложения: {:?}", app_dir);
 
-            //Вызов функции для инициализации бд
+            // Инициализация SQLite и регистрация соединения в глобальном состоянии Tauri.
             let conn = db::init(app_dir)
-                .expect("КРИТ. ОШИБКА: НЕ УДАЛОСЬ ИНИЦИАЛИЗОРАТЬ БД");
+                .expect("КРИТ. ОШИБКА: НЕ УДАЛОСЬ ИНИЦИАЛИЗИРОВАТЬ БД");
 
             app.manage(db::DbState(std::sync::Mutex::new(conn)));
 
-            Ok(()) //Блять, как мне не забывать не ставить ; 
+            // Важно вернуть `Ok(())` без `;` внутри closure.
+            Ok(())
 
         })
         .plugin(tauri_plugin_opener::init())
+        // Единая точка экспорта backend-команд для frontend.
         .invoke_handler(tauri::generate_handler![
             greet, open_file, save_file, 
             db::get_games, 
             db::sync_catalog, 
             db::set_game_path, 
+            db::auto_detect_game_path,
             db::reset_game_path, 
             db::install_localization, 
             db::get_localizations,

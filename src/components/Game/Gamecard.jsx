@@ -1,5 +1,6 @@
 export default function GameCard({ game, onOpenGame }) {
   return (
+    // Клик по карточке открывает detail-view выбранной игры.
     <div className="card" onClick={() => onOpenGame(game)} style={{ cursor: "pointer" }}>
       <div className="card-content">
         <h3>{game.name}</h3>

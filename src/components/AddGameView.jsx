@@ -16,7 +16,8 @@ export default function AddGameView({ onClose, onGameAdded }) {
       const newGameId = await invoke("add_local_game", { 
         name: name, 
         description: desc, 
-        imageUrl: imageUrl || null // Пустую строку превращаем в null
+        // Бэкенд ожидает `null`, если обложка не указана.
+        imageUrl: imageUrl || null
       });
       
       onGameAdded({ 
@@ -51,8 +52,7 @@ export default function AddGameView({ onClose, onGameAdded }) {
         <label style={styles.label}>Название игры *</label>
         <input className="search" value={name} onChange={e => setName(e.target.value)} required disabled={isSaving} />
       </div>
-      
-      {/* НОВОЕ ПОЛЕ */}
+      {/* URL обложки хранится как image_url и используется в sidebar/detail-view. */}
       <div>
         <label style={styles.label}>Ссылка на обложку (URL)</label>
         <input className="search" placeholder="https://images.igdb.com/..." value={imageUrl} onChange={e => setImageUrl(e.target.value)} disabled={isSaving} />
