@@ -80,6 +80,7 @@ pub fn run() {
             greet, open_file, save_file, 
             db::get_games, 
             db::sync_catalog, 
+            db::sync_catalog_from_api,
             db::set_game_path, 
             db::auto_detect_game_path,
             db::reset_game_path, 
@@ -88,9 +89,8 @@ pub fn run() {
             db::delete_localization,
             db::add_local_game,
             db::add_local_localization,
-            db::pick_localization_file,
+            db::pick_localization_image,
             db::disable_localization,
-            db::delete_localization,
             
         ])
         .run(tauri::generate_context!())

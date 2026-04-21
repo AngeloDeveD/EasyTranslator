@@ -5,45 +5,13 @@ import Titlebar from "./components/titleBar/titleBar";
 import Sidebar from "./components/Layout/Sidebar";
 import MainContent from "./components/Layout/MainContent";
 import GameDetailView from "./components/Game/GameDetailView";
-import AddGameModal from "./components/Modals/AddGameModal";
 import AddGameView from "./components/AddGameView";
 import AddLocalizationView from "./components/AddLocalizationView";
 import SettingsView from "./components/SettingsView";
 
 import "./App.scss";
 
-const FAKE_CATALOG_JSON = JSON.stringify([
-  // Локальный seed-каталог для разработки:
-  // используется, если БД пустая на первом запуске.
-  {
-    id: "game_1",
-    name: "Игра 1",
-    image_url: "https://images.igdb.com/igdb/image/upload/t_cover_big/co5vmg.webp",
-    description: "Тестовая игра",
-    localizations: [
-      {
-        id: "loc_1_text",
-        name: "Текстовый перевод",
-        version: "1.0",
-        // Оба перевода пишут в одну зону, что полезно для теста конфликтов.
-        primary_url: "https://raw.githubusercontent.com/torvalds/linux/master/README",
-        archive_hash: "abc123",
-        file_size_mb: 10,
-        install_instructions: JSON.stringify([{ "src": "data/", "dest": "Data/" }])
-      },
-      {
-        id: "loc_1_sound",
-        name: "Перевод озвучки",
-        version: "1.0",
-        primary_url: "https://raw.githubusercontent.com/torvalds/linux/master/README",
-        archive_hash: "def456",
-        file_size_mb: 50,
-        // Этот перевод тоже целится в `Data/` -> ожидаем конфликт при одновременной активации.
-        install_instructions: JSON.stringify([{ "src": "data/sound.pak", "dest": "Data/" }])
-      }
-    ]
-  }
-]);
+const API_BASE_URL = (import.meta.env.VITE_CATALOG_API_BASE_URL || "").trim();
 
 export default function App() {
   const [games, setGames] = useState([]);
@@ -55,17 +23,27 @@ export default function App() {
   const [showAddGame, setShowAddGame] = useState(false);
   const [showAddLoc, setShowAddLoc] = useState(false);
 
-  const checkAndSync = async () => {
-    // На пустой БД подгружаем тестовый каталог, чтобы интерфейс сразу был интерактивным.
-    const currentGames = await invoke("get_games");
-    if (currentGames.length === 0) {
-      try { await invoke("sync_catalog", { jsonString: FAKE_CATALOG_JSON }); }
-      catch (error) { console.error("Ошибка синхронизации:", error); }
-    }
+  const refreshGamesFromDb = async () => {
     setGames(await invoke("get_games"));
   };
 
-  useEffect(() => { checkAndSync(); }, []);
+  const syncCatalogFromApi = async () => {
+    if (!API_BASE_URL) {
+      await refreshGamesFromDb();
+      return;
+    }
+
+    try {
+      await invoke("sync_catalog_from_api", { apiBaseUrl: API_BASE_URL });
+    } catch (error) {
+      // Не блокируем UI: при сетевой ошибке просто показываем последний локальный снимок БД.
+      console.warn("Не удалось синхронизировать каталог с API:", error);
+    }
+
+    await refreshGamesFromDb();
+  };
+
+  useEffect(() => { syncCatalogFromApi(); }, []);
 
   const openGame = async (gameObj) => {
     // Экраны detail/settings взаимоисключающие.
@@ -78,16 +56,21 @@ export default function App() {
   };
 
   const goBack = () => {
-    // Возврат к списку игр и синхронизация свежего состояния из БД.
+    // Возврат к списку игр и чтение актуального состояния из БД.
     setSelectedGame(null);
     setLocalizations([]);
-    checkAndSync();
+    refreshGamesFromDb();
   };
 
   // Включение перевода: скачать/взять из library, затем распаковать в игру.
   const handleInstall = async (locId) => {
+    if (!API_BASE_URL) {
+      alert("Не задан VITE_CATALOG_API_BASE_URL. Установка разрешена только через ваш API.");
+      return;
+    }
+
     try {
-      await invoke("install_localization", { localizationId: locId });
+      await invoke("install_localization", { localizationId: locId, apiBaseUrl: API_BASE_URL });
       if (selectedGame) setLocalizations(await invoke("get_localizations", { gameId: selectedGame.id }));
     } catch (error) { alert("Ошибка включения: " + error); }
   };
@@ -113,7 +96,7 @@ export default function App() {
     try {
       const newPath = await invoke("set_game_path", { gameId });
       setSelectedGame(prev => prev ? { ...prev, install_path: newPath } : null);
-      checkAndSync();
+      refreshGamesFromDb();
     } catch (error) { if (error !== "Выбор папки отменен") alert("Ошибка: " + error); }
   };
 
@@ -121,7 +104,7 @@ export default function App() {
     try {
       const newPath = await invoke("auto_detect_game_path", { gameId });
       setSelectedGame(prev => (prev ? { ...prev, install_path: newPath } : null));
-      checkAndSync();
+      refreshGamesFromDb();
     } catch (error) { alert("Автопоиск не сработал: " + error); }
   };
 
@@ -129,7 +112,7 @@ export default function App() {
     try {
       await invoke("reset_game_path", { gameId });
       setSelectedGame(prev => prev ? { ...prev, install_path: null } : null);
-      checkAndSync();
+      refreshGamesFromDb();
     } catch (error) { console.error(error); }
   };
 
@@ -158,7 +141,12 @@ export default function App() {
               <MainContent games={games} onOpenGame={openGame} onOpenAddGame={() => setShowAddGame(true)} onOpenSettings={handleOpenSettings} />
             )
           ) : showAddLoc ? (
-            <AddLocalizationView gameId={selectedGame.id} onClose={() => setShowAddLoc(false)} onLocAdded={handleLocalLocAdded} />
+            <AddLocalizationView
+              gameId={selectedGame.id}
+              apiBaseUrl={API_BASE_URL}
+              onClose={() => setShowAddLoc(false)}
+              onLocAdded={handleLocalLocAdded}
+            />
           ) : (
             <GameDetailView 
               game={selectedGame} localizations={localizations} onBack={goBack}

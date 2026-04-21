@@ -1,4 +1,4 @@
-// Слой скачивания архивов с поддержкой fallback-ссылки.
+// Слой скачивания архивов.
 // Отдельный модуль нужен, чтобы держать сетевую логику вне `db.rs`.
 use reqwest;
 use std::path::PathBuf;
@@ -7,37 +7,15 @@ use tauri::Emitter;
 use std::io::Write;
 use std::env;
 
-pub async fn download_with_fallback(
-    app: tauri::AppHandle,
-    primary_url: &str,
-    backup_url: Option<&str>,
-    file_name: &str, // Имя временного файла в системной temp-папке.
-) -> Result<PathBuf, String> {
-    match download_file(app.clone(), primary_url, file_name).await {
-        Ok(path) => return Ok(path),
-        Err(primary_err) => {
-            println!("[DOWNLOAD] Ошибка primary URL: {}. Пробуем backup...", primary_err);
-
-            // При падении primary_url пробуем backup_url (если он задан).
-            if let Some(backup) = backup_url {
-                return download_file(app, backup, file_name).await;
-            }
-
-            // Если резервной ссылки нет, пробрасываем исходную ошибку выше.
-            Err(format!("Не удалось скачать файл. Основная и резервная ссылка недоступна. Ошибка: {}", primary_err))
-        }
-    }
-}
-
 /// Скачивает файл потоково и пишет его напрямую на диск.
 /// Во время скачивания публикует прогресс для UI через `download-progress`.
-async fn download_file(
+pub async fn download_from_url(
     app: tauri::AppHandle,
     url: &str,
     file_name: &str,
 ) -> Result<PathBuf, String> {
     let client = reqwest::Client::builder()
-        // Короткий timeout нужен, чтобы быстрее переключаться на fallback-ссылку.
+        // Держим короткий timeout, чтобы UI быстро получал ошибку при недоступности API.
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("Ошибка создания HTTP клиента: {}", e))?;

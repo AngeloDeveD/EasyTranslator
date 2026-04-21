@@ -1,28 +1,33 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
+export default function AddLocalizationView({ gameId, apiBaseUrl, onClose, onLocAdded }) {
   const [form, setForm] = useState({
     name: "",
     version: "1.0",
     language: "Русский",
     author: "",
-    filePath: "",       // Абсолютный путь к локальному zip-архиву.
+    sourceUrl: "",
+    imagePath: "",
     instructions: "[]"
   });
   const [isSaving, setIsSaving] = useState(false);
 
-  const handlePickFile = async () => {
-    const path = await invoke("pick_localization_file");
+  const handlePickImage = async () => {
+    const path = await invoke("pick_localization_image");
     if (path) {
-      setForm({ ...form, filePath: path });
+      setForm({ ...form, imagePath: path });
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.filePath) {
-      alert("Укажите название и выберите файл архива!");
+    if (!form.name.trim() || !form.sourceUrl.trim()) {
+      alert("Укажите название локализации и официальную ссылку проекта.");
+      return;
+    }
+    if (!apiBaseUrl?.trim()) {
+      alert("Не задан VITE_CATALOG_API_BASE_URL. Отправка локализации на API невозможна.");
       return;
     }
 
@@ -34,9 +39,10 @@ export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
         version: form.version,
         language: form.language,
         author: form.author,
-        // Backend сам вычисляет hash/size и сохраняет архив как локальную локализацию.
-        filePath: form.filePath,
-        instructionsJson: form.instructions
+        sourceUrl: form.sourceUrl,
+        instructionsJson: form.instructions,
+        imagePath: form.imagePath || null,
+        apiBaseUrl: apiBaseUrl
       });
 
       onLocAdded();
@@ -87,18 +93,29 @@ export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
           <input className="search" placeholder="Название команды" value={form.author} onChange={e => setForm({...form, author: e.target.value})} disabled={isSaving} />
         </div>
 
-        {/* Выбор локального архива перевода. */}
         <div>
-          <label style={styles.label}>Архив с переводом (.zip) *</label>
+          <label style={styles.label}>Официальная ссылка проекта перевода *</label>
+          <input
+            className="search"
+            placeholder="https://vk.com/... или https://discord.gg/..."
+            value={form.sourceUrl}
+            onChange={e => setForm({...form, sourceUrl: e.target.value})}
+            disabled={isSaving}
+            required
+          />
+        </div>
+
+        <div>
+          <label style={styles.label}>Изображение локализации (png/jpg/jpeg/webp)</label>
           <div style={{ display: "flex", gap: "10px" }}>
             <input 
               className="search" 
-              value={form.filePath ? getFileName(form.filePath) : ""} 
+              value={form.imagePath ? getFileName(form.imagePath) : ""} 
               readOnly 
-              placeholder="Файл не выбран" 
-              style={{ flex: 1, color: form.filePath ? "var(--text-primary)" : "var(--text-secondary)" }}
+              placeholder="Изображение не выбрано"
+              style={{ flex: 1, color: form.imagePath ? "var(--text-primary)" : "var(--text-secondary)" }}
             />
-            <button type="button" className="btn secondary" onClick={handlePickFile} disabled={isSaving}>
+            <button type="button" className="btn secondary" onClick={handlePickImage} disabled={isSaving}>
               Обзор...
             </button>
           </div>
@@ -110,7 +127,7 @@ export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
             ⚙️ Продвинутые настройки (JSON инструкции)
           </summary>
           <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "10px" }}>
-            Оставьте пустым, чтобы просто распаковать архив в папку игры. Заполняйте ТОЛЬКО если архив содержит лишние папки, которые нужно "срезать" (например, если внутри архива есть папка `archive/`, а файлы нужно положить в корень).
+            Оставьте пустым, чтобы архив с вашего API распаковывался в папку игры как есть. Заполняйте ТОЛЬКО если в архиве есть лишние уровни папок, которые нужно "срезать".
           </p>
           <textarea 
             className="search" 
@@ -124,7 +141,7 @@ export default function AddLocalizationView({ gameId, onClose, onLocAdded }) {
         </details>
 
         <button type="submit" className="btn accent" style={{ width: "fit-content" }} disabled={isSaving}>
-          {isSaving ? "Вычисление хэша и сохранение..." : "Добавить перевод"}
+          {isSaving ? "Отправка на API..." : "Отправить перевод"}
         </button>
       </form>
     </div>

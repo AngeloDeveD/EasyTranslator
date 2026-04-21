@@ -56,6 +56,13 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
             </button>
           )}
 
+          {/* Для уже установленного перевода показываем кнопку обновления при смене версии в каталоге. */}
+          {loc.status === 'installed' && loc.has_update && (
+            <button className="btn accent" style={{ flex: 1 }} onClick={() => handleInstallClick(loc.id)} disabled={isInstalling}>
+              Обновить
+            </button>
+          )}
+
           {/* "Выключить" показываем только если файлы перевода сейчас активны. */}
           {loc.status === 'installed' && (
             <button className="btn secondary" style={{ flex: 1 }} onClick={() => onDisable(loc.id)} disabled={isInstalling}>
@@ -114,10 +121,22 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
           {localizations.length === 1 && (
             <div className="card" style={{ height: "auto", marginTop: "20px" }}>
               <div className="card-content" style={{ gap: "10px" }}>
+                {localizations[0].image_url && (
+                  <img
+                    src={localizations[0].image_url}
+                    alt={localizations[0].name}
+                    style={{ width: "100%", maxHeight: "180px", objectFit: "cover", borderRadius: "8px" }}
+                  />
+                )}
                 <h3>{localizations[0].name}</h3>
                 <p className="mods">
                   Версия: {localizations[0].version} • Размер: {localizations[0].file_size_mb} MB
                 </p>
+                {localizations[0].has_update && (
+                  <p className="mods" style={{ color: "var(--accent)" }}>
+                    Доступно обновление версии.
+                  </p>
+                )}
                 {localizations[0].author && (
                   <p className="mods">
                     Автор: <a href={localizations[0].source_url} target="_blank" style={{ color: "var(--accent)", textDecoration: "none" }}>{localizations[0].author}</a>
@@ -134,9 +153,17 @@ export default function GameDetailView({ game, localizations, onBack, onSetPath,
               {localizations.map((loc) => (
                 <div className="card" key={loc.id} style={{ height: "auto" }}>
                   <div className="card-content" style={{ gap: "10px" }}>
+                    {loc.image_url && (
+                      <img
+                        src={loc.image_url}
+                        alt={loc.name}
+                        style={{ width: "100%", maxHeight: "160px", objectFit: "cover", borderRadius: "8px" }}
+                      />
+                    )}
                     <h3>{loc.name}</h3>
                     <p className="mods">Версия: {loc.version}</p>
                     <p className="mods">Размер: {loc.file_size_mb} MB</p>
+                    {loc.has_update && <p className="mods" style={{ color: "var(--accent)" }}>Доступно обновление</p>}
                     {loc.author && (
                       <p className="mods">
                         Автор: <a href={loc.source_url} target="_blank" style={{ color: "var(--accent)", textDecoration: "none" }}>{loc.author}</a>

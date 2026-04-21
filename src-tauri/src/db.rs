@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection, Result};
-use std::collections::HashSet;
+use reqwest::Url;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -36,10 +37,12 @@ pub struct Localization {
     pub version: String,
     pub author: Option<String>,
     pub source_url: Option<String>,
+    pub image_url: Option<String>,
     pub language: String,
     pub file_size_mb: i64,
     pub status: String, 
-    pub is_managed: bool, // НОВОЕ: true, если перевод в Локальной Библиотеке
+    pub is_managed: bool,
+    pub has_update: bool,
 }
 
 // ============================================================================
@@ -62,12 +65,69 @@ pub struct CatalogLocalization {
     pub version: String,
     pub author: Option<String>,
     pub source_url: Option<String>,
+    pub image_url: Option<String>,
     pub primary_url: String,
     pub backup_url: Option<String>,
     pub archive_hash: String,
     pub file_size_mb: i64,
     pub install_instructions: String,
     pub dll_whitelist: Option<String>,
+}
+
+const CATALOG_ENDPOINT_PATH: &str = "/api/v1/catalog";
+const LOCALIZATION_SUBMIT_ENDPOINT_PATH: &str = "/api/v1/localizations/proposals";
+const ALLOWED_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
+const IMAGE_EXTENSIONS_FOR_CACHE: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
+
+const IMAGE_CACHE_GAMES_DIR: &str = "image_cache/games";
+const IMAGE_CACHE_LOCALIZATIONS_DIR: &str = "image_cache/localizations";
+const LOCAL_DRAFT_IMAGE_DIR: &str = "image_cache/drafts";
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CatalogPayload {
+    Direct(Vec<CatalogGame>),
+    Wrapped(CatalogEnvelope),
+}
+
+#[derive(Deserialize)]
+struct CatalogEnvelope {
+    games: Vec<CatalogGame>,
+}
+
+#[derive(Deserialize)]
+struct CreatedLocalizationResponse {
+    id: String,
+    name: String,
+    version: String,
+    author: Option<String>,
+    source_url: Option<String>,
+    image_url: Option<String>,
+    primary_url: String,
+    backup_url: Option<String>,
+    archive_hash: String,
+    file_size_mb: i64,
+    install_instructions: String,
+    dll_whitelist: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct InstallInstructionInput {
+    src: String,
+    dest: String,
+}
+
+struct PendingSubmission {
+    id: i64,
+    game_id: String,
+    name: String,
+    version: String,
+    language: String,
+    author: String,
+    source_url: String,
+    instructions_json: String,
+    image_path: Option<String>,
+    api_base_url: String,
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +178,7 @@ pub fn init(app_data_dir: PathBuf) -> Result<Connection> {
             name TEXT NOT NULL,
             description TEXT,
             image_url TEXT,
+            local_image_path TEXT,
             install_path TEXT
         );
 
@@ -128,6 +189,8 @@ pub fn init(app_data_dir: PathBuf) -> Result<Connection> {
             version TEXT NOT NULL,
             author TEXT,
             source_url TEXT,
+            image_url TEXT,
+            local_image_path TEXT,
             language TEXT DEFAULT 'Русский',
             primary_url TEXT NOT NULL,
             backup_url TEXT,
@@ -147,8 +210,29 @@ pub fn init(app_data_dir: PathBuf) -> Result<Connection> {
             error_message TEXT,
             FOREIGN KEY (localization_id) REFERENCES localizations(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS pending_localization_submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            version TEXT NOT NULL,
+            language TEXT NOT NULL,
+            author TEXT,
+            source_url TEXT NOT NULL,
+            instructions_json TEXT NOT NULL,
+            image_path TEXT,
+            api_base_url TEXT NOT NULL,
+            last_error TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         "
     )?;
+
+    // Миграции для пользователей с уже существующей БД.
+    // Ошибку "duplicate column name" игнорируем, чтобы миграция была идемпотентной.
+    let _ = conn.execute("ALTER TABLE localizations ADD COLUMN image_url TEXT", []);
+    let _ = conn.execute("ALTER TABLE games ADD COLUMN local_image_path TEXT", []);
+    let _ = conn.execute("ALTER TABLE localizations ADD COLUMN local_image_path TEXT", []);
 
     Ok(conn)
 }
@@ -162,7 +246,10 @@ pub fn init(app_data_dir: PathBuf) -> Result<Connection> {
 pub fn get_games(state: State<DbState>) -> Result<Vec<Game>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT id, name, description, image_url, install_path FROM games")
+        .prepare(
+            "SELECT id, name, description, COALESCE(local_image_path, image_url) as image_url, install_path
+             FROM games"
+        )
         .map_err(|e| e.to_string())?;
     
     let mut games = Vec::new();
@@ -186,15 +273,62 @@ pub fn get_games(state: State<DbState>) -> Result<Vec<Game>, String> {
     Ok(games)
 }
 
+/// Возвращает игры для офлайн-режима:
+/// только те, где есть хотя бы одна локализация с записью в install_states
+/// (включая выключенные моды со статусом `available`).
+#[tauri::command]
+pub fn get_offline_games(state: State<DbState>) -> Result<Vec<Game>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT
+                g.id,
+                g.name,
+                g.description,
+                COALESCE(g.local_image_path, g.image_url) as image_url,
+                g.install_path
+             FROM games g
+             JOIN localizations l ON l.game_id = g.id
+             JOIN install_states s ON s.localization_id = l.id
+             ORDER BY g.name COLLATE NOCASE"
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut games = Vec::new();
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(Game {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                image_url: row.get(3)?,
+                install_path: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    for row in rows {
+        games.push(row.map_err(|e| e.to_string())?);
+    }
+
+    Ok(games)
+}
+
 /// Возвращает список локализаций для конкретной игры с их текущими статусами.
 #[tauri::command]
 pub fn get_localizations(game_id: String, state: State<DbState>) -> Result<Vec<Localization>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT l.id, l.name, l.version, l.author, l.source_url, l.language, l.file_size_mb,
+            "SELECT l.id, l.name, l.version, l.author, l.source_url, COALESCE(l.local_image_path, l.image_url) as image_url, l.language, l.file_size_mb,
                     COALESCE(s.status, 'available') as status,
-                    CASE WHEN s.localization_id IS NOT NULL THEN 1 ELSE 0 END as is_managed
+                    CASE WHEN s.localization_id IS NOT NULL THEN 1 ELSE 0 END as is_managed,
+                    CASE
+                      WHEN COALESCE(s.status, 'available') = 'installed'
+                       AND COALESCE(s.installed_version, '') != l.version
+                      THEN 1
+                      ELSE 0
+                    END as has_update
              FROM localizations l
              LEFT JOIN install_states s ON l.id = s.localization_id
              WHERE l.game_id = ?1"
@@ -210,10 +344,12 @@ pub fn get_localizations(game_id: String, state: State<DbState>) -> Result<Vec<L
             version: row.get(2)?,
             author: row.get(3)?,
             source_url: row.get(4)?,
-            language: row.get(5)?,
-            file_size_mb: row.get(6)?,
-            status: row.get(7)?,
-            is_managed: row.get(8)?,
+            image_url: row.get(5)?,
+            language: row.get(6)?,
+            file_size_mb: row.get(7)?,
+            status: row.get(8)?,
+            is_managed: row.get(9)?,
+            has_update: row.get(10)?,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -232,38 +368,305 @@ pub fn get_localizations(game_id: String, state: State<DbState>) -> Result<Vec<L
 /// Использует ON CONFLICT, чтобы не затирать локальные пути пользователей при обновлении описаний.
 #[tauri::command]
 pub fn sync_catalog(state: State<DbState>, json_string: String) -> Result<(), String> {
-    let catalog: Vec<CatalogGame> = serde_json::from_str(&json_string).map_err(|e| format!("Ошибка парсинга JSON: {}", e))?;
+    let catalog = parse_catalog_payload(&json_string)?;
     let mut conn = state.0.lock().map_err(|e| e.to_string())?;
-    
+    let game_image_cache = HashMap::new();
+    let localization_image_cache = HashMap::new();
+    apply_catalog(&mut conn, catalog, &game_image_cache, &localization_image_cache)
+}
+
+/// Получает каталог карточек с удаленного API и синхронизирует БД.
+/// URL передается с frontend (например, из Vite env `VITE_CATALOG_API_BASE_URL`).
+#[tauri::command]
+pub async fn sync_catalog_from_api(
+    state: State<'_, DbState>,
+    api_base_url: String,
+    app: AppHandle,
+) -> Result<u32, String> {
+    let base_url = normalize_api_base_url(&api_base_url)?;
+
+    let catalog_url = format!("{}{}", base_url, CATALOG_ENDPOINT_PATH);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("Не удалось создать HTTP-клиент: {}", e))?;
+
+    let response = client
+        .get(&catalog_url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Ошибка запроса каталога `{}`: {}", catalog_url, e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "API каталога `{}` вернул ошибку {}.",
+            catalog_url,
+            response.status()
+        ));
+    }
+
+    let payload = response
+        .text()
+        .await
+        .map_err(|e| format!("Не удалось прочитать ответ API каталога: {}", e))?;
+
+    let catalog = parse_catalog_payload(&payload)?;
+    validate_catalog_download_urls(&catalog, &base_url)?;
+    let game_count = catalog.len() as u32;
+
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let game_cache_dir = app_dir.join(IMAGE_CACHE_GAMES_DIR);
+    let localization_cache_dir = app_dir.join(IMAGE_CACHE_LOCALIZATIONS_DIR);
+    std::fs::create_dir_all(&game_cache_dir).map_err(|e| format!("Не удалось создать кеш картинок игр: {}", e))?;
+    std::fs::create_dir_all(&localization_cache_dir).map_err(|e| format!("Не удалось создать кеш картинок локализаций: {}", e))?;
+
+    let game_image_cache = build_game_image_cache(&client, &catalog, &game_cache_dir).await;
+    let localization_image_cache =
+        build_localization_image_cache(&client, &catalog, &localization_cache_dir).await;
+
+    let mut conn = state.0.lock().map_err(|e| e.to_string())?;
+    apply_catalog(
+        &mut conn,
+        catalog,
+        &game_image_cache,
+        &localization_image_cache,
+    )?;
+
+    Ok(game_count)
+}
+
+fn parse_catalog_payload(json: &str) -> Result<Vec<CatalogGame>, String> {
+    let payload: CatalogPayload = serde_json::from_str(json)
+        .map_err(|e| format!("Ошибка парсинга JSON-каталога: {}", e))?;
+
+    match payload {
+        CatalogPayload::Direct(games) => Ok(games),
+        CatalogPayload::Wrapped(envelope) => Ok(envelope.games),
+    }
+}
+
+fn apply_catalog(
+    conn: &mut Connection,
+    catalog: Vec<CatalogGame>,
+    game_image_cache: &HashMap<String, String>,
+    localization_image_cache: &HashMap<String, String>,
+) -> Result<(), String> {
     // Транзакция гарантирует атомарный апдейт каталога.
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     for game in catalog {
+        let game_id = game.id.clone();
+        let game_local_image = game_image_cache.get(&game.id);
         tx.execute(
-            "INSERT INTO games (id, name, description, image_url) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, image_url=excluded.image_url",
-            params![game.id, game.name, game.description, game.image_url],
+            "INSERT INTO games (id, name, description, image_url, local_image_path) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+               name=excluded.name,
+               description=excluded.description,
+               image_url=excluded.image_url,
+               local_image_path=COALESCE(excluded.local_image_path, games.local_image_path)",
+            params![
+                game.id,
+                game.name,
+                game.description,
+                game.image_url,
+                game_local_image
+            ],
         ).map_err(|e| e.to_string())?;
 
         for loc in game.localizations {
+            let localization_local_image = localization_image_cache.get(&loc.id);
             tx.execute(
-                "INSERT INTO localizations (id, game_id, name, version, author, source_url, primary_url, backup_url, archive_hash, file_size_mb, install_instructions, dll_whitelist)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-                 ON CONFLICT(id) DO UPDATE SET 
-                 name=excluded.name, version=excluded.version, author=excluded.author, source_url=excluded.source_url,
+                "INSERT INTO localizations (id, game_id, name, version, author, source_url, image_url, local_image_path, primary_url, backup_url, archive_hash, file_size_mb, install_instructions, dll_whitelist)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                 ON CONFLICT(id) DO UPDATE SET
+                 name=excluded.name, version=excluded.version, author=excluded.author, source_url=excluded.source_url, image_url=excluded.image_url,
+                 local_image_path=COALESCE(excluded.local_image_path, localizations.local_image_path),
                  primary_url=excluded.primary_url, backup_url=excluded.backup_url, archive_hash=excluded.archive_hash,
                  file_size_mb=excluded.file_size_mb, install_instructions=excluded.install_instructions,
                  dll_whitelist=excluded.dll_whitelist",
                 params![
-                    loc.id, game.id, loc.name, loc.version, loc.author, loc.source_url,
-                    loc.primary_url, loc.backup_url, loc.archive_hash, loc.file_size_mb, 
+                    loc.id, game_id.clone(), loc.name, loc.version, loc.author, loc.source_url,
+                    loc.image_url, localization_local_image, loc.primary_url, loc.backup_url, loc.archive_hash, loc.file_size_mb,
                     loc.install_instructions, loc.dll_whitelist
                 ],
             ).map_err(|e| e.to_string())?;
         }
     }
+
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn normalize_api_base_url(api_base_url: &str) -> Result<String, String> {
+    let trimmed = api_base_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("Не задан базовый URL API.".to_string());
+    }
+
+    let parsed = Url::parse(trimmed).map_err(|e| format!("Некорректный URL API: {}", e))?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err("URL API должен использовать http:// или https://".to_string());
+    }
+
+    if parsed.host_str().is_none() {
+        return Err("URL API не содержит host.".to_string());
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn is_api_owned_url(candidate: &str, api_base_url: &str) -> bool {
+    let Ok(candidate_url) = Url::parse(candidate) else {
+        return false;
+    };
+    let Ok(base_url) = Url::parse(api_base_url) else {
+        return false;
+    };
+
+    if candidate_url.scheme() != base_url.scheme() {
+        return false;
+    }
+    if candidate_url.host_str() != base_url.host_str() {
+        return false;
+    }
+    if candidate_url.port_or_known_default() != base_url.port_or_known_default() {
+        return false;
+    }
+
+    let base_path = base_url.path().trim_end_matches('/');
+    if base_path.is_empty() || base_path == "/" {
+        return true;
+    }
+
+    let candidate_path = candidate_url.path();
+    candidate_path == base_path || candidate_path.starts_with(&format!("{}/", base_path))
+}
+
+fn validate_catalog_download_urls(catalog: &[CatalogGame], api_base_url: &str) -> Result<(), String> {
+    for game in catalog {
+        for loc in &game.localizations {
+            if !is_api_owned_url(&loc.primary_url, api_base_url) {
+                return Err(format!(
+                    "Каталог содержит неразрешенную ссылку загрузки для `{}`: {}",
+                    loc.name, loc.primary_url
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_public_source_url(source_url: &str) -> Result<(), String> {
+    let parsed = Url::parse(source_url.trim())
+        .map_err(|e| format!("Некорректная официальная ссылка проекта: {}", e))?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err("Официальная ссылка проекта должна быть http:// или https://".to_string());
+    }
+    Ok(())
+}
+
+async fn build_game_image_cache(
+    client: &reqwest::Client,
+    catalog: &[CatalogGame],
+    cache_dir: &Path,
+) -> HashMap<String, String> {
+    let mut result = HashMap::new();
+    for game in catalog {
+        let Some(image_url) = game.image_url.as_deref() else {
+            continue;
+        };
+        if let Some(local_uri) = cache_image_from_url(client, image_url, cache_dir, &game.id).await {
+            result.insert(game.id.clone(), local_uri);
+        }
+    }
+    result
+}
+
+async fn build_localization_image_cache(
+    client: &reqwest::Client,
+    catalog: &[CatalogGame],
+    cache_dir: &Path,
+) -> HashMap<String, String> {
+    let mut result = HashMap::new();
+    for game in catalog {
+        for loc in &game.localizations {
+            let Some(image_url) = loc.image_url.as_deref() else {
+                continue;
+            };
+            if let Some(local_uri) = cache_image_from_url(client, image_url, cache_dir, &loc.id).await {
+                result.insert(loc.id.clone(), local_uri);
+            }
+        }
+    }
+    result
+}
+
+async fn cache_image_from_url(
+    client: &reqwest::Client,
+    image_url: &str,
+    cache_dir: &Path,
+    key: &str,
+) -> Option<String> {
+    let parsed = Url::parse(image_url).ok()?;
+
+    let ext = image_extension_from_url(&parsed).unwrap_or("img");
+    let safe_key = sanitize_filename_key(key);
+    let target = cache_dir.join(format!("{}.{}", safe_key, ext));
+
+    if target.exists() {
+        return file_uri_from_path(&target);
+    }
+
+    let response = client.get(image_url).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+
+    let bytes = response.bytes().await.ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+
+    if std::fs::write(&target, bytes).is_err() {
+        return None;
+    }
+
+    file_uri_from_path(&target)
+}
+
+fn image_extension_from_url(url: &Url) -> Option<&'static str> {
+    let path = url.path();
+    let extension = path.rsplit('.').next()?.to_lowercase();
+    match extension.as_str() {
+        "png" => Some("png"),
+        "jpg" | "jpeg" => Some("jpg"),
+        "webp" => Some("webp"),
+        "gif" => Some("gif"),
+        other => {
+            if IMAGE_EXTENSIONS_FOR_CACHE.contains(&other) {
+                Some("img")
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn sanitize_filename_key(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    for ch in key.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() { "image".to_string() } else { out }
+}
+
+fn file_uri_from_path(path: &Path) -> Option<String> {
+    Url::from_file_path(path).ok().map(|u| u.to_string())
 }
 
 // ============================================================================
@@ -711,7 +1114,7 @@ fn vdf_value(content: &str, wanted_key: &str) -> Option<String> {
 }
 
 // ============================================================================
-// ЛОКАЛЬНОЕ ДОБАВЛЕНИЕ (БЕЗ СЕРВЕРА)
+// РУЧНОЕ ДОБАВЛЕНИЕ КОНТЕНТА ИЗ UI
 // ============================================================================
 
 /// Создает игру в БД локально на основе пользовательского ввода.
@@ -729,47 +1132,229 @@ pub fn add_local_game(name: String, description: String, image_url: Option<Strin
     Ok(id)
 }
 
-/// Открывает диалог выбора файла, вычисляет хэш/размер и сохраняет локализацию в БД.
+/// Отправляет предложение локализации на API и сохраняет в БД данные,
+/// которые вернул API (primary_url/hash/size/instructions).
 #[tauri::command]
-pub fn add_local_localization(
-    game_id: String, name: String, version: String, language: String, 
-    author: String, file_path: String, instructions_json: String, state: State<DbState>,
-) -> Result<(), String> {
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
-    let id = format!("{}_{}", game_id, name.to_lowercase().replace(" ", "_"));
-
-    let hash = crate::installer::calculate_file_hash(&file_path)?;
-    let metadata = std::fs::metadata(&file_path).map_err(|e| format!("Нет доступа к файлу: {}", e))?;
-    let size_mb = (metadata.len() as f64 / 1_048_576.0) as i64;
-
-    // Защита от дубликатов
-    let count: i32 = conn.query_row(
-        "SELECT count(*) FROM localizations WHERE id = ?1", 
-        params![id], 
-        |row| row.get(0) // Указываем, что хотим забрать нулевую колонку как i32
-    ).map_err(|e| e.to_string())?;
-
-    // Если count больше 0, значит дубликат
-    if count > 0 {
-        return Err("Перевод с таким названием уже существует.".to_string());
+pub async fn add_local_localization(
+    game_id: String,
+    name: String,
+    version: String,
+    language: String,
+    author: String,
+    source_url: String,
+    instructions_json: String,
+    image_path: Option<String>,
+    api_base_url: String,
+    app: AppHandle,
+    state: State<'_, DbState>,
+) -> Result<String, String> {
+    if name.trim().is_empty() {
+        return Err("Название локализации не может быть пустым.".to_string());
     }
 
-    // Сохраняем локальный путь как primary_url (инсталлер сам поймет, что это локальный файл)
+    validate_public_source_url(&source_url)?;
+    let base_url = normalize_api_base_url(&api_base_url)?;
+
+    // Проверяем, что пользователь передал валидный JSON install_instructions.
+    let instructions: Vec<InstallInstructionInput> = serde_json::from_str(&instructions_json)
+        .map_err(|e| format!("Некорректный JSON install_instructions: {}", e))?;
+    for rule in &instructions {
+        if rule.src.trim().is_empty() {
+            return Err("Поле `src` в install_instructions не может быть пустым.".to_string());
+        }
+        if rule.dest.contains("..") {
+            return Err("Поле `dest` в install_instructions содержит запрещенный сегмент `..`.".to_string());
+        }
+    }
+
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let drafts_dir = app_dir.join(LOCAL_DRAFT_IMAGE_DIR);
+    std::fs::create_dir_all(&drafts_dir).map_err(|e| format!("Не удалось создать кеш черновиков изображений: {}", e))?;
+
+    let draft_image_path = persist_draft_image(
+        image_path.as_deref(),
+        &drafts_dir,
+        &format!("{}_{}_{}", game_id, name, version),
+    )?;
+
+    let fallback_local_image_uri = draft_image_path
+        .as_ref()
+        .and_then(|p| file_uri_from_path(Path::new(p)));
+
+    let submit_url = format!("{}{}", base_url, LOCALIZATION_SUBMIT_ENDPOINT_PATH);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Не удалось создать HTTP-клиент: {}", e))?;
+
+    let mut form = reqwest::multipart::Form::new()
+        .text("game_id", game_id.clone())
+        .text("name", name.clone())
+        .text("version", version.clone())
+        .text("language", language.clone())
+        .text("author", author.clone())
+        .text("source_url", source_url.clone())
+        .text("install_instructions", instructions_json.clone());
+
+    if let Some(stored_image_path) = &draft_image_path {
+        let image_path_buf = PathBuf::from(stored_image_path);
+        let ext = image_path_buf
+            .extension()
+            .and_then(|v| v.to_str())
+            .map(|v| v.to_lowercase())
+            .ok_or("Файл изображения должен иметь расширение.")?;
+
+        let mime = match ext.as_str() {
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "webp" => "image/webp",
+            _ => return Err("Неподдерживаемый mime-type изображения.".to_string()),
+        };
+
+        let image_bytes = std::fs::read(&image_path_buf)
+            .map_err(|e| format!("Не удалось прочитать изображение: {}", e))?;
+        let file_name = image_path_buf
+            .file_name()
+            .and_then(|v| v.to_str())
+            .ok_or("Не удалось получить имя файла изображения.")?
+            .to_string();
+
+        let image_part = reqwest::multipart::Part::bytes(image_bytes)
+            .file_name(file_name)
+            .mime_str(mime)
+            .map_err(|e| format!("Некорректный mime-type изображения: {}", e))?;
+        form = form.part("image", image_part);
+    }
+
+    let response = client
+        .post(&submit_url)
+        .multipart(form)
+        .send()
+        .await;
+
+    let response = match response {
+        Ok(resp) => resp,
+        Err(e) => {
+            let conn = state.0.lock().map_err(|err| err.to_string())?;
+            conn.execute(
+                "INSERT INTO pending_localization_submissions
+                 (game_id, name, version, language, author, source_url, instructions_json, image_path, api_base_url, last_error)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    game_id,
+                    name,
+                    version,
+                    language,
+                    author,
+                    source_url,
+                    instructions_json,
+                    draft_image_path,
+                    base_url,
+                    format!("Сохранено в очередь: {}", e),
+                ],
+            )
+            .map_err(|err| err.to_string())?;
+
+            return Ok("queued".to_string());
+        }
+    };
+
+    if !response.status().is_success() {
+        if response.status().is_server_error() {
+            let conn = state.0.lock().map_err(|err| err.to_string())?;
+            conn.execute(
+                "INSERT INTO pending_localization_submissions
+                 (game_id, name, version, language, author, source_url, instructions_json, image_path, api_base_url, last_error)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    game_id,
+                    name,
+                    version,
+                    language,
+                    author,
+                    source_url,
+                    instructions_json,
+                    draft_image_path,
+                    base_url,
+                    format!("Сервер временно недоступен: {}", response.status()),
+                ],
+            )
+            .map_err(|err| err.to_string())?;
+            return Ok("queued".to_string());
+        }
+
+        return Err(format!("API отклонил локализацию. Код ответа: {}", response.status()));
+    }
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Не удалось прочитать ответ API: {}", e))?;
+    let created: CreatedLocalizationResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("Некорректный JSON в ответе API: {}", e))?;
+
+    if created.id.trim().is_empty() {
+        return Err("API вернул пустой id локализации.".to_string());
+    }
+    if !is_api_owned_url(&created.primary_url, &base_url) {
+        return Err("API вернул недопустимый primary_url (вне вашего API-домена).".to_string());
+    }
+
+    let localization_cache_dir = app_dir.join(IMAGE_CACHE_LOCALIZATIONS_DIR);
+    std::fs::create_dir_all(&localization_cache_dir)
+        .map_err(|e| format!("Не удалось создать кеш картинок локализаций: {}", e))?;
+    let cached_remote_image_uri = match created.image_url.as_deref() {
+        Some(url) => cache_image_from_url(&client, url, &localization_cache_dir, &created.id).await,
+        None => None,
+    };
+    let local_image_uri = cached_remote_image_uri.or(fallback_local_image_uri);
+
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
     conn.execute(
-        "INSERT OR IGNORE INTO localizations (id, game_id, name, version, author, language, primary_url, archive_hash, file_size_mb, install_instructions)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![id, game_id, name, version, author, language, file_path, hash, size_mb, instructions_json],
+        "INSERT INTO localizations (id, game_id, name, version, author, source_url, image_url, local_image_path, language, primary_url, backup_url, archive_hash, file_size_mb, install_instructions, dll_whitelist)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+         ON CONFLICT(id) DO UPDATE SET
+           game_id=excluded.game_id,
+           name=excluded.name,
+           version=excluded.version,
+           author=excluded.author,
+           source_url=excluded.source_url,
+           image_url=excluded.image_url,
+           local_image_path=COALESCE(excluded.local_image_path, localizations.local_image_path),
+           language=excluded.language,
+           primary_url=excluded.primary_url,
+           backup_url=excluded.backup_url,
+            archive_hash=excluded.archive_hash,
+            file_size_mb=excluded.file_size_mb,
+           install_instructions=excluded.install_instructions,
+           dll_whitelist=excluded.dll_whitelist",
+        params![
+            created.id,
+            game_id,
+            created.name,
+            created.version,
+            created.author,
+            created.source_url.or(Some(source_url)),
+            created.image_url,
+            local_image_uri,
+            language,
+            created.primary_url,
+            created.backup_url,
+            created.archive_hash,
+            created.file_size_mb,
+            created.install_instructions,
+            created.dll_whitelist
+        ],
     ).map_err(|e| e.to_string())?;
 
-    Ok(())
+    Ok("uploaded".to_string())
 }
 
-/// Системный диалог для выбора только .zip архивов.
 #[tauri::command]
-pub fn pick_localization_file() -> Result<Option<String>, String> {
+pub fn pick_localization_image() -> Result<Option<String>, String> {
     let file = rfd::FileDialog::new()
-        .add_filter("Архивы переводов", &["zip"])
-        .set_title("Выберите архив с переводом")
+        .add_filter("Изображения", &["png", "jpg", "jpeg", "webp"])
+        .set_title("Выберите изображение локализации")
         .pick_file();
 
     match file {
@@ -787,21 +1372,23 @@ pub fn pick_localization_file() -> Result<Option<String>, String> {
 #[tauri::command]
 pub async fn install_localization(
     localization_id: String,
+    api_base_url: String,
     app: AppHandle, 
     state: State<'_, DbState>,
 ) -> Result<(), String> {
+    let api_base_url = normalize_api_base_url(&api_base_url)?;
     
     // 1. Блокируем БД, забираем все нужные данные и СРАЗУ отпускаем Mutex.
     // Это критично для асинхронных функций, чтобы UI не зависал во время скачивания.
-    let (game_id, install_path, primary_url, backup_url, instructions, expected_hash, file_size_mb) = {
+    let (game_id, install_path, primary_url, instructions, expected_hash, file_size_mb, current_version) = {
         let conn = state.0.lock().map_err(|e| e.to_string())?;
 
         let game_id: String = conn.query_row("SELECT game_id FROM localizations WHERE id = ?1", params![localization_id], |row| row.get(0)).map_err(|e| format!("Перевод не найден: {}", e))?;
         let install_path: Option<String> = conn.query_row("SELECT install_path FROM games WHERE id = ?1", params![game_id], |row| row.get(0)).map_err(|e| e.to_string())?;
         let path = install_path.ok_or("Путь к игре не указан!")?;
 
-        let (p_url, b_url, instr, size_mb): (String, Option<String>, String, Option<i64>) = conn.query_row(
-            "SELECT primary_url, backup_url, install_instructions, file_size_mb FROM localizations WHERE id = ?1",
+        let (p_url, instr, size_mb, version): (String, String, Option<i64>, String) = conn.query_row(
+            "SELECT primary_url, install_instructions, file_size_mb, version FROM localizations WHERE id = ?1",
             params![localization_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         ).map_err(|e| e.to_string())?;
         
@@ -813,8 +1400,14 @@ pub async fn install_localization(
             params![localization_id],
         ).map_err(|e| e.to_string())?;
 
-        (game_id, path, p_url, b_url, instr, hash, size_mb)
+        (game_id, path, p_url, instr, hash, size_mb, version)
     }; 
+
+    if !is_api_owned_url(&primary_url, &api_base_url) {
+        let err = "Загрузка перевода разрешена только с вашего API.".to_string();
+        mark_install_error(&state, &localization_id, &err)?;
+        return Err(err);
+    }
 
     // 2. Подготовка директорий Library и Backups
     let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -824,31 +1417,36 @@ pub async fn install_localization(
     std::fs::create_dir_all(&backups_dir).map_err(|e| format!("Нет прав на создание папки бэкапов: {}", e))?;
 
     let final_archive_path = library_dir.join(format!("{}.zip", localization_id));
-    let archive_size_hint = resolve_archive_size_hint(&final_archive_path, &primary_url, file_size_mb)
+    let mut should_download = !final_archive_path.exists();
+    if !should_download {
+        if crate::installer::verify_file_hash(&final_archive_path.to_string_lossy(), &expected_hash).is_err() {
+            std::fs::remove_file(&final_archive_path)
+                .map_err(|e| format!("Не удалось удалить устаревший архив перед обновлением: {}", e))?;
+            should_download = true;
+        }
+    }
+
+    let archive_size_hint = resolve_archive_size_hint(&final_archive_path, file_size_mb)
         .map_err(|e| format!("Не удалось оценить размер архива: {}", e))?;
 
     // 3. Получение архива (Скачивание или копирование локального файла)
-    if !final_archive_path.exists() {
+    if should_download {
         let required_for_download = archive_size_hint.saturating_add(64 * 1024 * 1024);
         if let Err(e) = ensure_disk_space(
             &library_dir,
             required_for_download,
-            "перед скачиванием/копированием архива в локальную библиотеку",
+            "перед скачиванием архива в локальную библиотеку",
         ) {
             mark_install_error(&state, &localization_id, &e)?;
             return Err(e);
         }
-    }
 
-    if !primary_url.starts_with("http://") && !primary_url.starts_with("https://") {
-        if !final_archive_path.exists() {
-            std::fs::copy(&primary_url, &final_archive_path).map_err(|e| format!("Ошибка копирования: {}", e))?;
-        }
-    } else {
-        if !final_archive_path.exists() {
-            let temp_path = crate::downloader::download_with_fallback(app.clone(), &primary_url, backup_url.as_deref(), &format!("{}.zip", localization_id)).await?;
-            std::fs::rename(&temp_path, &final_archive_path).map_err(|_| "Ошибка перемещения архива".to_string())?;
-        }
+        let temp_path = crate::downloader::download_from_url(
+            app.clone(),
+            &primary_url,
+            &format!("{}.zip", localization_id),
+        ).await?;
+        std::fs::rename(&temp_path, &final_archive_path).map_err(|_| "Ошибка перемещения архива".to_string())?;
     }
 
     let archive_size = std::fs::metadata(&final_archive_path)
@@ -918,8 +1516,18 @@ pub async fn install_localization(
     {
         let conn = state.0.lock().map_err(|e| e.to_string())?;
         conn.execute(
-            "UPDATE install_states SET status = 'installed', backup_path = ?1, local_archive_path = ?2 WHERE localization_id = ?3",
-            params![backup_file_path.to_string_lossy(), final_archive_path.to_string_lossy(), localization_id],
+            "UPDATE install_states
+             SET status = 'installed',
+                 installed_version = ?1,
+                 backup_path = ?2,
+                 local_archive_path = ?3
+             WHERE localization_id = ?4",
+            params![
+                current_version,
+                backup_file_path.to_string_lossy(),
+                final_archive_path.to_string_lossy(),
+                localization_id
+            ],
         ).map_err(|e| e.to_string())?;
     }
 
@@ -928,7 +1536,6 @@ pub async fn install_localization(
 
 fn resolve_archive_size_hint(
     final_archive_path: &Path,
-    primary_url: &str,
     file_size_mb: Option<i64>,
 ) -> Result<u64, String> {
     if final_archive_path.exists() {
@@ -938,15 +1545,8 @@ fn resolve_archive_size_hint(
         return Ok(size);
     }
 
-    if primary_url.starts_with("http://") || primary_url.starts_with("https://") {
-        let mb = file_size_mb.unwrap_or(0).max(0) as u64;
-        return Ok(mb.saturating_mul(1_048_576));
-    }
-
-    let size = std::fs::metadata(primary_url)
-        .map_err(|e| format!("Не удалось получить размер локального архива: {}", e))?
-        .len();
-    Ok(size)
+    let mb = file_size_mb.unwrap_or(0).max(0) as u64;
+    Ok(mb.saturating_mul(1_048_576))
 }
 
 fn ensure_disk_space(path: &Path, required_bytes: u64, stage: &str) -> Result<(), String> {
